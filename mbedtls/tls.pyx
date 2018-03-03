@@ -5,14 +5,15 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-cimport tls as _tls
-cimport x509 as _x509
-cimport mbedtls.pk._pk as _pk
-from libc.stdlib cimport malloc, free
+from libc.stdlib cimport malloc, realloc, free
 
+cimport mbedtls.pk as _pk
+cimport mbedtls.tls as _tls
+cimport mbedtls.x509 as _x509
+
+import socket as _socket
 from collections import namedtuple
 from enum import Enum, IntEnum
-from socket import socket
 
 import certifi
 
@@ -27,7 +28,8 @@ def __get_ciphersuite_name(ciphersuite_id):
         ciphersuite_id: The ID of the ciphersuite.
 
     """
-    return bytes(_tls.mbedtls_ssl_get_ciphersuite_name).decode("ascii")
+    return _tls.mbedtls_ssl_get_ciphersuite_name(
+        ciphersuite_id).decode("ascii")
 
 
 def __get_ciphersuite_id(name):
@@ -41,11 +43,12 @@ def __get_ciphersuite_id(name):
     return _tls.mbedtls_ssl_get_ciphersuite_id(&c_name[0])
 
 
-def __get_supported_ciphersuites():
+def ciphers_available():
     """Return the list of ciphersuites supported by the SSL/TLS module.
 
     See Also:
-        mbedtls._md.__get_supported_mds()
+        - hash.algorithms_available
+        - hmac.algorithms_available
 
     """
     cdef const int* ids = _tls.mbedtls_ssl_list_ciphersuites()
@@ -55,6 +58,18 @@ def __get_supported_ciphersuites():
         ciphersuites.append(__get_ciphersuite_name(ids[n]))
         n += 1
     return ciphersuites
+
+
+class NextProtocol(Enum):
+    # PEP 543
+    H2 = b'h2'
+    H2C = b'h2c'
+    HTTP1 = b'http/1.1'
+    WEBRTC = b'webrtc'
+    C_WEBRTC = b'c-webrtc'
+    FTP = b'ftp'
+    STUN = b'stun.nat-discovery'
+    TURN = b'stun.turn'
 
 
 class TLSVersion(IntEnum):
@@ -72,11 +87,11 @@ PEM_HEADER = "-----BEGIN CERTIFICATE-----"
 PEM_FOOTER = "-----END CERTIFICATE-----"
 
 
-class TrustStore(_pep543.TrustStore):
+class TrustStore:
     def __init__(self, db=None):
         if db is None:
-            db = frozenset()
-        self._db = frozenset(db)
+            db = []
+        self._db = tuple(db)
 
     @classmethod
     def system(cls):
@@ -96,7 +111,7 @@ class TrustStore(_pep543.TrustStore):
                 if inpem:
                     certs[-1].append(line)
         return cls(
-            {_x509.Certificate.from_PEM("".join(cert)) for cert in certs})
+            tuple(_x509.Certificate.from_PEM("".join(cert)) for cert in certs))
 
     def __eq__(self, other):
         if type(other) is not type(self):
@@ -121,7 +136,10 @@ class Purpose(Enum):
     CLIENT_AUTH = 1
 
 
-cdef class _TLSConfiguration:
+_DEFAULT_VALUE = object()
+
+
+cdef class TLSConfiguration:
     """TLS configuration.
 
     Args:
@@ -142,21 +160,40 @@ cdef class _TLSConfiguration:
             highest_supported_version=None,
             trust_store=None,
             sni_callback=None):
-        self.set_validate_certificates(validate_certificates)
-        self.set_certificate_chain(certificate_chain)
-        self.set_ciphers(ciphers)
-        self.set_inner_protocols(inner_protocols)
-        self.set_lowest_supported_version(lowest_supported_version)
-        self.set_highest_supported_version(highest_supported_version)
-        self.set_trust_store(trust_store)
-        self.set_sni_callback(sni_callback)
+
+        # Keep the object alive.
+        self._trust_store = trust_store
+
+        self._set_validate_certificates(validate_certificates)
+        self._set_certificate_chain(certificate_chain)
+        self._set_ciphers(ciphers)
+        self._set_inner_protocols(inner_protocols)
+        self._set_lowest_supported_version(lowest_supported_version)
+        self._set_highest_supported_version(highest_supported_version)
+        self._set_trust_store(trust_store)
+        self._set_sni_callback(sni_callback)
 
     def __cinit__(self):
         _tls.mbedtls_ssl_config_init(&self._ctx)
 
+        cdef int ciphers_sz = len(ciphers_available()) + 1
+        self._ciphers = <int *>malloc(ciphers_sz * sizeof(int))
+        if not self._ciphers:
+            raise MemoryError()
+        for idx in range(ciphers_sz):
+            self._ciphers[idx] = 0
+
+        cdef int protos_sz = len(NextProtocol) + 1
+        self._protos = <char **>malloc(protos_sz * sizeof(char *))
+        if not self._protos:
+            raise MemoryError()
+        for idx in range(protos_sz):
+            self._protos[idx] = NULL
+
     def __dealloc__(self):
         _tls.mbedtls_ssl_config_free(&self._ctx)
         free(self._ciphers)
+        free(self._protos)
 
     @classmethod
     def _create_default_context(cls, purpose=Purpose.SERVER_AUTH,
@@ -172,14 +209,14 @@ cdef class _TLSConfiguration:
             raise TypeError(purpose)
         # TLS / DTLS
         cdef int transport = _tls.MBEDTLS_SSL_TRANSPORT_STREAM
-        cdef _TLSConfiguration self = cls()
+        cdef TLSConfiguration self = cls()
         check_error(_tls.mbedtls_ssl_config_defaults(
             &self._ctx,
             1 if purpose is Purpose.SERVER_AUTH else 0,
             transport,
             0))
 
-    def set_validate_certificates(self, validate):
+    cdef _set_validate_certificates(self, validate):
         """Set the certificate verification mode.
 
         """  # PEP 543
@@ -190,7 +227,11 @@ cdef class _TLSConfiguration:
             _tls.MBEDTLS_SSL_VERIFY_NONE if validate is False else
             _tls.MBEDTLS_SSL_VERIFY_REQUIRED)
 
-    def set_certificate_chain(self, chain):
+    @property
+    def validate_certificates(self):
+        return self._ctx.authmode != _tls.MBEDTLS_SSL_VERIFY_NONE
+
+    cdef _set_certificate_chain(self, chain):
         """The certificate, intermediate certificate, and
         the corresponding private key for the leaf certificate.
 
@@ -208,7 +249,28 @@ cdef class _TLSConfiguration:
                 check_error(_tls.mbedtls_ssl_conf_own_cert(
                     &self._ctx, &c_cert._ctx, &c_pk_key._ctx))
 
-    def set_ciphers(self, ciphers):
+    @property
+    def certificate_chain(self):
+        # certificates chained at:
+        # mbedtls_ssl_config::mbedtls_ssl_key_cert *key_cert
+        #   key_cert.cert
+        #   key_cert.key
+        #   key_cert.next
+        #
+        # alt: check keys in mbedtls_x509write_cert
+        chain = []
+        while True:
+            key_cert = self._ctx.key_cert
+            if key_cert is NULL:
+                break
+            cert = key_cert.cert
+            key = key_cert.key
+            # Both:
+            # - convert to DER (call C function)
+            # - feed into X.from_DER()
+        return tuple(chain)
+
+    cdef _set_ciphers(self, ciphers):
         """The available ciphers for the TLS connections.
 
         Args:
@@ -217,18 +279,30 @@ cdef class _TLSConfiguration:
         """ # PEP 543
         if ciphers is None:
             return
-        if ciphers:
-            raise MemoryError("ciphers already set")
-        self._ciphers = <int*>malloc(len(ciphers) * sizeof(int))
-        if not self._ciphers:
-            raise MemoryError
-        for index, cipher in enumerate(ciphers):
+        if len(ciphers) > len(ciphers_available()):
+            raise ValueError("invalid ciphers")
+        cdef size_t idx = 0
+        self._ciphers[idx] = 0
+        for idx, cipher in enumerate(ciphers):
             if not isinstance(cipher, int):
                 cipher = __get_ciphersuite_id(cipher)
-            self._ciphers[index] = cipher
-        _tls.mbedtls_ssl_conf_ciphersuites(&self._ctx, &self._ciphers[0])
+            self._ciphers[idx] = cipher
+        self._ciphers[idx + 1] = 0
+        _tls.mbedtls_ssl_conf_ciphersuites(&self._ctx, self._ciphers)
 
-    def set_inner_protocols(self, protocols):
+    @property
+    def ciphers(self):
+        ciphers = []
+        cdef int cipher_id
+        cdef size_t idx
+        for idx in range(len(ciphers_available())):
+            cipher_id = self._ciphers[idx]
+            if cipher_id == 0:
+                break
+            ciphers.append(__get_ciphersuite_name(cipher_id))
+        return ciphers
+
+    cdef _set_inner_protocols(self, protocols):
         """
 
         Args:
@@ -242,10 +316,30 @@ cdef class _TLSConfiguration:
         # PEP 543
         if protocols is None:
             return
-        # XXX mbedtls_ssl_conf_alpn_protocols
-        ...
+        if len(protocols) > len(NextProtocol):
+            raise ValueError("invalid protocols")
+        cdef size_t idx = 0
+        self._protos[idx] = NULL
+        for idx, proto in enumerate(protocols):
+            if not isinstance(proto, bytes):
+                proto = proto.value
+            self._protos[idx] = proto
+        self._protos[idx + 1] = NULL
+        check_error(_tls.mbedtls_ssl_conf_alpn_protocols(
+            &self._ctx, self._protos))
 
-    def set_lowest_supported_version(self, version):
+    @property
+    def inner_protocols(self):
+        protos = []
+        cdef const char* proto
+        for idx in range(len(NextProtocol)):
+            proto = self._protos[idx]
+            if proto is NULL:
+                break
+            protos.append(NextProtocol(proto))
+        return tuple(protos)
+
+    cdef _set_lowest_supported_version(self, version):
         """The minimum version of TLS that should be allowed.
 
         Args:
@@ -255,10 +349,13 @@ cdef class _TLSConfiguration:
         if version is None:
             return
         cdef int major = 3
-        _tls.mbedtls_ssl_conf_min_version(
-            &self._ctx, major, int(version))
+        _tls.mbedtls_ssl_conf_min_version(&self._ctx, major, int(version))
 
-    def set_highest_supported_version(self, version):
+    @property
+    def lowest_supported_version(self):
+        return TLSVersion(self._ctx.min_minor_ver)
+
+    cdef _set_highest_supported_version(self, version):
         """The maximum version of TLS that should be allowed.
 
         Args:
@@ -268,10 +365,13 @@ cdef class _TLSConfiguration:
         if version is None:
             return
         cdef int major = 3
-        _tls.mbedtls_ssl_conf_max_version(
-            &self._ctx, major, int(version))
+        _tls.mbedtls_ssl_conf_max_version(&self._ctx, major, int(version))
 
-    def set_trust_store(self, store):
+    @property
+    def highest_supported_version(self):
+        return TLSVersion(self._ctx.max_minor_ver)
+
+    cdef _set_trust_store(self, store):
         """The trust store that connections will use.
 
         Args:
@@ -280,58 +380,71 @@ cdef class _TLSConfiguration:
         """ # PEP 543
         if store is None:
             return
-        if not isinstance(store, TrustStore):
-            raise TypeError(store)
-        ...
+        cdef _x509.Certificate cert = store._db[0]
+        mbedtls_ssl_conf_ca_chain(&self._ctx, &cert._ctx, NULL)
 
-    def set_sni_callback(self, callback):
+    @property
+    def trust_store(self):
+        return self._trust_store
+
+    cdef _set_sni_callback(self, callback):
         # PEP 543, optional, server-side only
         if callback is None:
             return
-        # XXX mbedtls_ssl_conf_sni
+        # mbedtls_ssl_conf_sni
         raise NotImplementedError
+
+    @property
+    def sni_callback(self):
+        return None
+
+    def update(self,
+               validate_certificates=_DEFAULT_VALUE,
+               certificate_chain=_DEFAULT_VALUE,
+               ciphers=_DEFAULT_VALUE,
+               inner_protocols=_DEFAULT_VALUE,
+               lowest_supported_version=_DEFAULT_VALUE,
+               highest_supported_version=_DEFAULT_VALUE,
+               trust_store=_DEFAULT_VALUE,
+               sni_callback=_DEFAULT_VALUE):
+        """Create a new ``TLSConfiguration``.
+
+        Override some of the settings on the original configuration
+        with the new settings.
+
+        """
+        if validate_certificates is _DEFAULT_VALUE:
+            validate_certificates = self.validate_certificates
+
+        if certificate_chain is _DEFAULT_VALUE:
+            certificate_chain = self.certificate_chain
+
+        if ciphers is _DEFAULT_VALUE:
+            ciphers = self.ciphers
+
+        if inner_protocols is _DEFAULT_VALUE:
+            inner_protocols = self.inner_protocols
+
+        if lowest_supported_version is _DEFAULT_VALUE:
+            lowest_supported_version = self.lowest_supported_version
+
+        if highest_supported_version is _DEFAULT_VALUE:
+            highest_supported_version = self.highest_supported_version
+
+        if trust_store is _DEFAULT_VALUE:
+            trust_store = self.trust_store
+
+        if sni_callback is _DEFAULT_VALUE:
+            sni_callback = self.sni_callback
+
+        return self.__class__(
+            validate_certificates, certificate_chain, ciphers, inner_protocols,
+            lowest_supported_version, highest_supported_version, trust_store,
+            sni_callback)
+
 
 
 DEFAULT_CIPHER_LIST = _pep543.DEFAULT_CIPHER_LIST  # None
-
-
-class TLSConfiguration(
-    namedtuple("TLSConfiguration",
-               _pep543.TLSConfiguration._fields + ("impl", ))):
-    __slots__ = ()
-
-    def __new__(cls,
-                validate_certificates=None,
-                certificate_chain=None,
-                ciphers=None,
-                inner_protocols=None,
-                lowest_supported_version=None,
-                highest_supported_version=None,
-                trust_store=None,
-                sni_callback=None):
-
-        if validate_certificates is None:
-            validate_certificates = False
-
-        if ciphers is None:
-            ciphers = DEFAULT_CIPHER_LIST
-
-        if inner_protocols is None:
-            inner_protocols = []
-
-        if lowest_supported_version is None:
-            lowest_supported_version = TLSVersion.TLSv1
-
-        if highest_supported_version is None:
-            highest_supported_version = TLSVersion.MAXIMUM_SUPPORTED
-
-        impl = _TLSConfiguration(True, _tls.MBEDTLS_SSL_TRANSPORT_STREAM)
-        impl.validate_certificates
-
-        return super().__new__(
-            cls, validate_certificates, certificate_chain, ciphers,
-            inner_protocols, lowest_supported_version,
-            highest_supported_version, trust_store, sni_callback, impl)
 
 
 cdef class _TLSSession:
@@ -353,11 +466,11 @@ cdef class _BaseContext:
 
     """
 
-    def __init__(self, _TLSConfiguration configuration):
+    def __init__(self, TLSConfiguration configuration):
         # PEP 543
         self._conf = configuration
         check_error(_tls.mbedtls_ssl_setup(
-            &self._ctx, &configuration._ctx))
+            &self._ctx, &self._conf._ctx))
         # 0 if successful, or MBEDTLS_ERR_SSL_ALLOC_FAILED
 
     def __cinit__(self):
@@ -378,12 +491,11 @@ cdef class _BaseContext:
 
     cpdef _read(self, size_t amt):
         cdef unsigned char* output = <unsigned char*>malloc(
-            sz * sizeof(unsigned char))
+            amt * sizeof(unsigned char))
         if not output:
             raise MemoryError()
         try:
-            ret = _tls.mbedtls_ssl_read(
-                &self._ctx, &output[0], output.shape[0])
+            ret = _tls.mbedtls_ssl_read(&self._ctx, &output[0], amt)
             # Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE
             # Handle MBEDTLS_ERR_SSL_CLIENT_RECONNECT
             if ret < 0:
@@ -399,8 +511,7 @@ cdef class _BaseContext:
             free(output)
 
     cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt):
-        ret = _tls.mbedtls_ssl_read(
-            &self._ctx, &buffer[0], buffer.shape[0])
+        ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
         # Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE
         # Handle MBEDTLS_ERR_SSL_CLIENT_RECONNECT
         if ret < 0:
@@ -440,16 +551,19 @@ cdef class _BaseContext:
         return None
 
     def selected_alpn_protocol(self):
-        cdef char* protocol = _tls.mbedtls_ssl_get_alpn_protocol(&self._ctx)
+        cdef const char* protocol = _tls.mbedtls_ssl_get_alpn_protocol(
+            &self._ctx)
         if protocol is NULL:
             return None
         return protocol.decode("ascii")
 
     def cipher(self):
-        name = _tls.mbedtls_ssl_get_ciphersuite(&self._ctx).decode("ascii")
+        cdef const char* name = _tls.mbedtls_ssl_get_ciphersuite(&self._ctx)
+        if name is NULL:
+            return None
         ssl_version = self.version()
         secret_bits = None
-        return name, ssl_version, secret_bits
+        return name.decode("ascii"), ssl_version, secret_bits
 
     def do_handshake(self):
         """Start the SSL/TLS handshake."""
@@ -467,16 +581,34 @@ cdef class _BaseContext:
         return None
 
     def version(self):
-        return _tls.mbedtls_ssl_get_version(&self._ctx).decode("ascii")
+        return {
+            "SSLv3.0": TLSVersion.SSLv3,
+        }[_tls.mbedtls_ssl_get_version(&self._ctx).decode("ascii")]
 
 
 cdef class ClientContext(_tls._BaseContext):
     # _pep543.ClientContext
+    def wrap_socket(self, socket, server_hostname):
+        """Wrap an existing Python socket object ``socket`` and return a
+        ``TLSWrappedSocket`` object. ``socket`` must be a ``SOCK_STREAM``
+        socket: all other socket types are unsupported.
 
-    def wrap_buffer(self, server_hostname=None):
+        Args:
+            socket (socket.socket): The socket to wrap.
+            server_hostname (str, optional): The hostname of the service
+                which we are connecting to.  Pass ``None`` if hostname
+                validation is not desired.  This parameter has no
+                default value because opting-out hostname validation is
+                dangerous and should not be the default behavior.
+
+        """
+        buffer = self.wrap_buffers(server_hostname)
+        return TLSWrappedSocket(socket, buffer)
+
+    def wrap_buffers(self, server_hostname=None):
+        """Create an in-memory stream for TLS."""
         # PEP 543
-        # XXX return TLSWrappedBuffer
-        ...
+        return TLSWrapped(self)
 
     def set_hostname(self, hostname):
         """Set the hostname to check against the received server."""
@@ -496,14 +628,20 @@ cdef class ClientContext(_tls._BaseContext):
 
 cdef class ServerContext(_tls._BaseContext):
     # _pep543.ServerContext
+    def wrap_socket(self, socket):
+        """Wrap an existing Python socket object ``socket``."""
+        buffer = self.wrap_buffers()
+        return TLSWrappedSocket(socket, buffer)
 
-    def wrap_buffer(self):
+    def wrap_buffers(self):
         # PEP 543
-        # XXX return TLSWrappedBuffer
-        ...
+        return TLSWrappedBuffer(self)
 
 
 class TLSWrappedBuffer(_pep543.TLSWrappedBuffer):
+    def __init__(self, context):
+        self._context = context
+
     def read(self, amt):
         return self.context.read(amt)
 
@@ -517,10 +655,11 @@ class TLSWrappedBuffer(_pep543.TLSWrappedBuffer):
         self.context.do_handshake()
 
     def cipher(self):
-        ...
+        # XXX Should return enum or string.
+        return self.context.cipher()[0]
 
     def negotiated_protocol(self):
-        ...
+        return self.context.selected_alpn_protocol()
 
     @property
     def context(self):
@@ -528,7 +667,7 @@ class TLSWrappedBuffer(_pep543.TLSWrappedBuffer):
         return self._context
 
     def negotiated_tls_version(self):
-        ...
+        return self.context.version()
 
     def shutdown(self):
         ...
@@ -544,23 +683,101 @@ class TLSWrappedBuffer(_pep543.TLSWrappedBuffer):
 
 
 class TLSWrappedSocket(_pep543.TLSWrappedSocket):
-    # PEP 543: Full socket.socket API + following methods:
+    def __init__(self, socket, buffer):
+        super().__init__()
+        self._socket = socket
+        self._buffer = buffer
+
+    # PEP 543 requires the full socket API.
+
+    def accept(self):
+        self._socket.accept()
+
+    def bind(self, address):
+        self._socket.bind(address)
+
+    def close(self):
+        self._socket.close()
+
+    def connect(self, address):
+        ...
+
+    def connect_ex(self, address):
+        ...
+
+    def fileno(self):
+        return self._socket.fileno()
+
+    def getpeername(self):
+        return self._socket.getpeername()
+
+    def getsockname(self):
+        return self._socket.getsockname()
+
+    def getsockopt(self, optname, buflen=None):
+        return self._socket.getsockopt(optname, buflen=buflen)
+
+    def listen(self, backlog):
+        self._socket.listen(backlog)
+
+    # makefile
+
+    def recv(self, bufsize, flags=None):
+        ...
+
+    def recvfrom(self, bufsize, flags=None):
+        ...
+
+    def recvfrom_into(self, buffer, nbytes=None, flags=None):
+        ...
+
+    def recv_into(self, buffer, nbytes=None, flags=None):
+        ...
+
+    def send(self, string, flags=None):
+        ...
+
+    def sendall(self, string, flags=None):
+        ...
+
+    def sendto(self, string, address):
+        ...
+
+    def sendto(self, string, flags, address):
+        ...
+
+    def setblocking(self, flag):
+        self._socket.setblocking(flag)
+
+    def settimeout(self, value):
+        self._socket.settimeout(value)
+
+    def gettimeout(self):
+        return self._socket.gettimeout()
+
+    def setsockopt(self, level, optname, value):
+        self._socket.setsockopt(level, optname, value)
+
+    def shutdown(self, how):
+        self._socket.shutdown(how)
+
+    # PEP 543 adds the following methods.
 
     def do_handshake(self):
         self.context.do_handshake()
 
     def cipher(self):
-        ...
+        return self.context.cipher()[0]
 
     def negotiated_protocol(self):
-        ...
+        return self._buffer.negotiated_protocol()
 
     @property
     def context(self):
         return self._context
 
     def negotiated_tls_version(self):
-        ...
+        return self._buffer.version()
 
     def unwrap(self):
-        ...
+        return self._socket

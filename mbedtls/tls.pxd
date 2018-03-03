@@ -5,6 +5,9 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
+cimport mbedtls.x509 as _x509
+
+
 cdef:
     enum: MBEDTLS_SSL_TRANSPORT_STREAM = 0
     enum: MBEDTLS_SSL_TRANSPORT_DATAGRAM = 1
@@ -21,6 +24,16 @@ cdef extern from "mbedtls/pk.h":
 
 cdef extern from "mbedtls/x509.h":
     ctypedef enum mbedtls_x509_crt: pass
+    ctypedef enum mbedtls_x509_crl: pass
+
+
+cdef extern from "mbedtls/ssl_internal.h":
+    # ctypedef enum mbedtls_ssl_transform: pass
+    # ctypedef enum mbedtls_ssl_handshake_params: pass
+    ctypedef struct mbedtls_ssl_key_cert:
+        mbedtls_x509_crt *cert
+        mbedtls_pk_context *key
+        mbedtls_ssl_key_cert *next
 
 
 cdef extern from "mbedtls/ssl.h":
@@ -28,14 +41,27 @@ cdef extern from "mbedtls/ssl.h":
     # ------------
     # ctypedef enum mbedtls_ssl_states: pass
     ctypedef enum mbedtls_ssl_session: pass
-    ctypedef enum mbedtls_ssl_config: pass
-    ctypedef enum mbedtls_ssl_context: pass
 
-    # Defined in ssl_internal.h
-    # -------------------------
-    # ctypedef enum mbedtls_ssl_transform: pass
-    # ctypedef enum mbedtls_ssl_handshake_params: pass
-    # ctypedef enum mbedtls_ssl_key_cert: pass
+    ctypedef struct mbedtls_ssl_config:
+        # set_validate_certificates
+        unsigned int authmode
+        # set_certificate_chain
+        mbedtls_ssl_key_cert *key_cert
+        # set_ciphers
+        const int *ciphersuite_list[4]
+        # set_inner_protocols
+        const char **alpn_list
+        # set_lowest_supported_version/set_highest_supported_version
+        unsigned char max_major_ver
+        unsigned char max_minor_ver
+        unsigned char min_major_ver
+        unsigned char min_minor_ver
+        # set_trust_store
+        # ca_chain / ca_crl
+        # set_sni_callback
+        # f_sni / p_sni
+
+    ctypedef enum mbedtls_ssl_context: pass
 
     # Callback types
     # --------------
@@ -71,8 +97,11 @@ cdef extern from "mbedtls/ssl.h":
     # mbedtls_ssl_conf_handshake_timeout
     # mbedtls_ssl_conf_ciphersuites_for_version
     # mbedtls_ssl_conf_cert_profile
-    # mbedtls_ssl_conf_ca_chain
 
+    void mbedtls_ssl_conf_ca_chain(
+        mbedtls_ssl_config *conf,
+        mbedtls_x509_crt *ca_chain,
+        mbedtls_x509_crl *ca_crl)
     int mbedtls_ssl_conf_own_cert(
         mbedtls_ssl_config *conf,
         mbedtls_x509_crt *own_cert,
@@ -187,9 +216,20 @@ cdef extern from "mbedtls/ssl.h":
     void mbedtls_ssl_session_free(mbedtls_ssl_session *session)
 
 
-cdef class _TLSConfiguration:
+cdef class TLSConfiguration:
     cdef mbedtls_ssl_config _ctx
-    cdef int* _ciphers
+    cdef int *_ciphers
+    cdef char **_protos
+    cdef object _trust_store
+    # cdef'd because we aim at a non-writable structure.
+    cdef _set_validate_certificates(self, validate)
+    cdef _set_certificate_chain(self, chain)
+    cdef _set_ciphers(self, ciphers)
+    cdef _set_inner_protocols(self, protocols)
+    cdef _set_lowest_supported_version(self, version)
+    cdef _set_highest_supported_version(self, version)
+    cdef _set_trust_store(self, object store)
+    cdef _set_sni_callback(self, callback)
 
 
 cdef class _TLSSession:
@@ -198,7 +238,7 @@ cdef class _TLSSession:
 
 cdef class _BaseContext:
     cdef mbedtls_ssl_context _ctx
-    cdef _TLSConfiguration _conf
+    cdef TLSConfiguration _conf
     cpdef _reset(self)
     cpdef _read(self, size_t mt)
     cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt)
