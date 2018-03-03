@@ -68,14 +68,52 @@ class TLSVersion(IntEnum):
     MAXIMUM_SUPPORTED = 3
 
 
+PEM_HEADER = "-----BEGIN CERTIFICATE-----"
+PEM_FOOTER = "-----END CERTIFICATE-----"
+
+
 class TrustStore(_pep543.TrustStore):
+    def __init__(self, db=None):
+        if db is None:
+            db = frozenset()
+        self._db = frozenset(db)
+
     @classmethod
     def system(cls):
         return cls.from_pem_file(certifi.where())
 
     @classmethod
     def from_pem_file(cls, path):
-        pass
+        certs = []
+        with open(str(path)) as cacert:
+            inpem = False
+            for line in cacert.readlines():
+                if line.startswith(PEM_HEADER):
+                    inpem = True
+                    certs.append([])
+                elif line.strip().endswith(PEM_FOOTER):
+                    inpem = False
+                if inpem:
+                    certs[-1].append(line)
+        return cls(
+            {_x509.Certificate.from_PEM("".join(cert)) for cert in certs})
+
+    def __eq__(self, other):
+        if type(other) is not type(self):
+            return NotImplemented
+        return self._db == other._db
+
+    def __bool__(self):
+        return bool(self._db)
+
+    def __len__(self):
+        return len(self._db)
+
+    def __iter__(self):
+        return iter(self._db)
+
+    def __contains__(self, other):
+        return other in self._db
 
 
 class Purpose(Enum):
