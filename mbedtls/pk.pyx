@@ -7,6 +7,7 @@ __license__ = "MIT License"
 
 from libc.stdlib cimport malloc, free
 
+cimport mbedtls._mpi as _mpi
 cimport mbedtls.pk as _pk
 cimport mbedtls.random as _random
 
@@ -17,7 +18,8 @@ from mbedtls.exceptions import check_error, PkError
 import mbedtls.hash as _hash
 
 
-__all__ = ("CIPHER_NAME", "check_pair", "get_supported_ciphers", "RSA")
+__all__ = ("CIPHER_NAME", "check_pair", "get_supported_ciphers",
+           "RSA", "ECKEY", "ECKEY_DH", "ECDSA")
 
 
 CIPHER_NAME = (
@@ -350,3 +352,95 @@ cdef class RSA(CipherBase):
         check_error(_pk.mbedtls_rsa_gen_key(
             _pk.mbedtls_pk_rsa(self._ctx), &_random.mbedtls_ctr_drbg_random,
             &__rng._ctx, key_size, exponent))
+
+
+cdef class ECPoint:
+    def __cinit__(self):
+        """Initialize the context."""
+        _pk.mbedtls_ecp_point_init(&self._ctx)
+
+    def __dealloc__(self):
+        """Free and clear the context."""
+        _pk.mbedtls_ecp_point_free(&self._ctx)
+
+    def __eq__(self, other):
+        if other.__class__ != self.__class__:
+            return False
+        c_other = <ECPoint> other
+        return _pk.mbedtls_ecp_point_cmp(&self._ctx, &c_other._ctx)
+
+    def copy(self):
+        cdef ECPoint other = ECPoint()
+        check_error(_pk.mbedtls_ecp_copy(&other._ctx, &self._ctx))
+        return other
+
+    def is_zero(self):
+        """Return True if point is 0, False otherwise."""
+        return _pk.mbedtls_ecp_is_zero(&self._ctx) == 1
+
+
+cdef class ECGroup:
+    def __cinit__(self):
+        """Initialize the context."""
+        _pk.mbedtls_ecp_group_init(&self._ctx)
+
+    def __dealloc__(self):
+        """Free and clear the context."""
+        _pk.mbedtls_ecp_group_free(&self._ctx)
+
+    def copy(self):
+        cdef ECGroup other = ECGroup()
+        check_error(_pk.mbedtls_ecp_group_copy(&other._ctx, &self._ctx))
+        return other
+
+
+cdef class ECKeyPair:
+    def __cinit__(self):
+        """Initialize the context."""
+        _pk.mbedtls_ecp_keypair_init(&self._ctx)
+
+    def __dealloc__(self):
+        """Free and clear the context."""
+        _pk.mbedtls_ecp_keypair_free(&self._ctx)
+
+
+cdef class ECBase(CipherBase):
+
+    """Base to elliptic-curve cryptosystems."""
+
+    def __init__(self, name):
+        super().__init__(name)
+        self._ecp = ECKeyPair()
+
+    cpdef bint has_private(self):
+        """Return `True` if the key contains a valid private half."""
+        cdef const mbedtls_mpi* d = &_pk.mbedtls_pk_ec(self._ctx).d
+        return _mpi.mbedtls_mpi_cmp_mpi(d, &_mpi.MPI(0)._ctx) != 0
+
+    cpdef bint has_public(self):
+        """Return `True` if the key contains a valid public half."""
+        cdef mbedtls_ecp_keypair* ecp = _pk.mbedtls_pk_ec(self._ctx)
+        return not _pk.mbedtls_ecp_is_zero(&ecp.Q)
+
+    def generate(self, point=None):
+        """Generate an EC keypair."""
+        # if None:
+        #     mbedtls_ecp_gen_keypair_base
+        check_error(_pk.mbedtls_ecp_gen_keypair(
+            &self._ecp._ctx.grp, &self._ecp._ctx.d, &self._ecp._ctx.Q,
+            &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+
+
+cdef class ECKEY(ECBase):
+    def __init__(self):
+        super().__init__(b"EC")
+
+
+cdef class ECKEY_DH(ECBase):
+    def __init__(self):
+        super().__init__(b"EC_DH")
+
+
+cdef class ECDSA(ECBase):
+    def __init__(self):
+        super().__init__(b"ECDSA")

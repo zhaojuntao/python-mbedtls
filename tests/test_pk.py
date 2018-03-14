@@ -20,12 +20,25 @@ def cipher(request):
     return CipherBase(name)
 
 
-@pytest.fixture
-def rsa():
+# @pytest.fixture(params=[RSA, ECKEY, ECKEY_DH, ECDSA])
+@pytest.fixture(params=[RSA])
+def rsa(request):
     key_size = 1024
-    cipher = RSA()
-    cipher.generate(key_size)
+    cipher = request.param()
+    if request.param is RSA:
+        cipher.generate(key_size)
+    else:
+        cipher.generate()
     return cipher
+
+
+def test_ec_generate():
+    ec = ECKEY()
+    assert not ec.has_public()
+    assert not ec.has_private()
+    ec.generate()
+    assert ec.has_public()
+    assert ec.has_private()
 
 
 def test_cipher_list():

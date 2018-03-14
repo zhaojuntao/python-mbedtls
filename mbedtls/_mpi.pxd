@@ -47,7 +47,9 @@ cdef extern from "mbedtls/bignum.h":
     # mbedtls_mpi_shift_l
     # mbedtls_mpi_shift_r
     # mbedtls_mpi_cmp_abs
-    # mbedtls_mpi_cmp_mpi
+    int mbedtls_mpi_cmp_mpi(
+        const mbedtls_mpi *X,
+        const mbedtls_mpi *Y)
     # mbedtls_mpi_cmp_int
     # mbedtls_mpi_add_abs
     # mbedtls_mpi_sub_abs
