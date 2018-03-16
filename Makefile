@@ -2,13 +2,12 @@
 
 PYX  = $(wildcard mbedtls/*.pyx)
 PYX += $(wildcard mbedtls/cipher/*.pyx)
-PYX += $(wildcard mbedtls/pk/*.pyx)
 
 LIBMBEDTLS = $(HOME)/lib/mbedtls-2.4.2
 
 debug:
-	cython -a -X linetrace=True $(PYX)
-	CFLAGS='-DCYTHON_TRACE=1' python setup.py build_ext --inplace \
+	cython -X linetrace=True $(PYX)
+	python setup.py build_ext --force --inplace --define CYTHON_TRACE \
 		   -L$(LIBMBEDTLS)/lib \
 		   -I$(LIBMBEDTLS)/include
 
