@@ -140,16 +140,7 @@ _DEFAULT_VALUE = object()
 
 
 cdef class TLSConfiguration:
-    """TLS configuration.
-
-    Args:
-        server_side (bool): True for server-side socket.
-        transport (int): {MBEDTLS_SSL_TRANSPORT_STREAM,
-                          MBEDTLS_SSL_TRANSPORT_DATAGRAM} for TLS or DTS, resp.
-        preset (int): A MBEDTLS_SSL_PRESET, default is
-            MBEDTLS_SSL_PRESET_DEFAULT
-
-    """
+    """TLS configuration."""
     def __init__(
             self,
             validate_certificates=None,

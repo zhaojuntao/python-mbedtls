@@ -1,3 +1,6 @@
+import multiprocessing as mp
+import socket
+
 import pytest
 
 from mbedtls.exceptions import _ErrorBase
@@ -154,3 +157,76 @@ class TestServerContext:
     @pytest.fixture
     def context(self, conf):
         return ServerContext(conf)
+
+
+class TestTLSCommunication:
+    @pytest.fixture(scope="class")
+    def host(self):
+        return "localhost"
+
+    @pytest.fixture(scope="class")
+    def port(self):
+        return 50007
+
+    @pytest.fixture(scope="class")
+    def tcp_srv_socket(self, host, port):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, port))
+        sock.listen(5)
+        yield sock
+        sock.close()
+
+    @pytest.fixture(scope="class")
+    def tls_srv_conf(self):
+        return TLSConfiguration._create_default_context(
+            purpose=Purpose.SERVER_AUTH)
+
+    @pytest.fixture(scope="class")
+    def tls_srv_socket(self, tls_srv_conf, tcp_srv_socket):
+        ctx = ServerContext(tls_srv_conf)
+        sock = ctx.wrap_socket(tcp_srv_socket)
+        return sock
+
+    @pytest.fixture
+    def tls_cli_conf(self):
+        return TLSConfiguration._create_default_context(
+            purpose=Purpose.CLIENT_AUTH)
+
+    @pytest.fixture
+    def tls_cli_context(self, tls_cli_conf):
+        return ClientContext(tls_cli_conf)
+
+    @pytest.fixture(scope="class")
+    def tcp_server(self, tcp_srv_socket, host, port):
+        parent_conn, child_conn = mp.Pipe()
+
+        def run(pipe):
+            while True:
+                conn, addr = tcp_srv_socket.accept()
+                data = conn.recv(1024)
+                pipe.send(data)
+                conn.close()
+                if data == b"bye":
+                    break
+
+        runner = mp.Process(target=run, args=(child_conn,))
+        runner.start()
+        yield parent_conn
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.connect((host, port))
+            sock.sendall(b"bye")
+        runner.join(0.1)
+
+    @pytest.fixture(scope="function")
+    def tcp_client(self, tcp_server, host, port):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1.0)
+        sock.connect((host, port))
+        yield sock
+        sock.close()
+
+    def test_client_server(self, tcp_server, tcp_client):
+        tcp_client.sendall(b"hello")
+        assert tcp_server.recv() == b"hello"
