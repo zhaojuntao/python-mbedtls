@@ -22,10 +22,23 @@ cdef extern from "mbedtls/bignum.h":
 
 cdef extern from "mbedtls/ecp.h":
     ctypedef enum mbedtls_ecp_group_id:
-        pass
+        MBEDTLS_ECP_DP_NONE = 0,
+        MBEDTLS_ECP_DP_SECP192R1
+        MBEDTLS_ECP_DP_SECP224R1
+        MBEDTLS_ECP_DP_SECP256R1
+        MBEDTLS_ECP_DP_SECP384R1
+        MBEDTLS_ECP_DP_SECP521R1
+        MBEDTLS_ECP_DP_BP256R1
+        MBEDTLS_ECP_DP_BP384R1
+        MBEDTLS_ECP_DP_BP512R1
+        MBEDTLS_ECP_DP_CURVE25519
+        MBEDTLS_ECP_DP_SECP192K1
+        MBEDTLS_ECP_DP_SECP224K1
+        MBEDTLS_ECP_DP_SECP256K1
 
     ctypedef struct mbedtls_ecp_curve_info:
-        pass
+        int bit_size
+        const char *name
 
     ctypedef struct mbedtls_ecp_point:
         pass
@@ -42,7 +55,7 @@ cdef extern from "mbedtls/ecp.h":
 
     # Free functions
     # --------------
-    # mbedtls_ecp_curve_list
+    const mbedtls_ecp_curve_info* mbedtls_ecp_curve_list()
     # mbedtls_ecp_grp_id_list
     # mbedtls_ecp_curve_info_from_grp_id
     # mbedtls_ecp_curve_info_from_tls_id
@@ -81,10 +94,6 @@ cdef extern from "mbedtls/ecp.h":
     # mbedtls_ecp_check_pubkey
     # mbedtls_ecp_check_privkey
 
-    # mbedtls_ecp_group_id
-    # --------------------
-    # mbedtls_ecp_gen_key
-
     # mbedtls_ecp_keypair
     # -------------------
     void mbedtls_ecp_keypair_init(mbedtls_ecp_keypair *key)
@@ -97,6 +106,11 @@ cdef extern from "mbedtls/ecp.h":
         int (*f_rng)(void *, unsigned char *, size_t),
         void *p_rng)
     # mbedtls_ecp_check_pub_priv
+    int mbedtls_ecp_gen_key(
+        mbedtls_ecp_group_id grp_id,
+        mbedtls_ecp_keypair *key,
+        int (*f_rng)(void *, unsigned char *, size_t),
+        void *p_rng)
 
 
 cdef extern from "mbedtls/rsa.h":
@@ -245,7 +259,3 @@ cdef class ECGroup:
 
 cdef class ECKeyPair:
     cdef mbedtls_ecp_keypair _ctx
-
-
-cdef class ECBase(CipherBase):
-    cdef ECKeyPair _ecp

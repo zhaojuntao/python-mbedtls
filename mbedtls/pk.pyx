@@ -18,7 +18,8 @@ from mbedtls.exceptions import check_error, PkError
 import mbedtls.hash as _hash
 
 
-__all__ = ("CIPHER_NAME", "check_pair", "get_supported_ciphers",
+__all__ = ("CIPHER_NAME", "check_pair",
+           "get_supported_ciphers", "get_supported_curves",
            "RSA", "ECKEY", "ECKEY_DH", "ECDSA")
 
 
@@ -59,6 +60,17 @@ def _type_from_name(name):
 
 cpdef get_supported_ciphers():
     return CIPHER_NAME
+
+
+def get_supported_curves():
+    cdef const mbedtls_ecp_curve_info* info = mbedtls_ecp_curve_list()
+    names, idx = [], 0
+    while True:
+        if info[idx].name == NULL:
+            break
+        names.append(bytes(info[idx].name))
+        idx += 1
+    return names
 
 
 cdef _random.Random __rng = _random.Random()
@@ -410,7 +422,6 @@ cdef class ECBase(CipherBase):
 
     def __init__(self, name):
         super().__init__(name)
-        self._ecp = ECKeyPair()
 
     cpdef bint has_private(self):
         """Return `True` if the key contains a valid private half."""
@@ -422,12 +433,11 @@ cdef class ECBase(CipherBase):
         cdef mbedtls_ecp_keypair* ecp = _pk.mbedtls_pk_ec(self._ctx)
         return not _pk.mbedtls_ecp_is_zero(&ecp.Q)
 
-    def generate(self, point=None):
+    def generate(self):
         """Generate an EC keypair."""
-        # if None:
-        #     mbedtls_ecp_gen_keypair_base
-        check_error(_pk.mbedtls_ecp_gen_keypair(
-            &self._ecp._ctx.grp, &self._ecp._ctx.d, &self._ecp._ctx.Q,
+        grp_id = _pk.mbedtls_ecp_group_id.MBEDTLS_ECP_DP_SECP192R1
+        check_error(_pk.mbedtls_ecp_gen_key(
+            grp_id, _pk.mbedtls_pk_ec(self._ctx),
             &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
 
 

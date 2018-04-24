@@ -45,6 +45,10 @@ def test_cipher_list():
     assert len(CIPHER_NAME) == 5
 
 
+def test_supported_curves():
+    assert get_supported_curves()
+
+
 def test_get_supported_ciphers():
     cl = get_supported_ciphers()
     assert tuple(cl) == CIPHER_NAME
