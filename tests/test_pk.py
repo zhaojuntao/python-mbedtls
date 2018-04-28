@@ -1,6 +1,7 @@
 """Unit tests for mbedtls.pk."""
 
 
+from itertools import product
 from functools import partial
 from tempfile import TemporaryFile
 
@@ -20,14 +21,20 @@ def cipher(request):
     return CipherBase(name)
 
 
-@pytest.fixture(params=[RSA])
-def rsa(request):
+@pytest.fixture
+def rsa():
     key_size = 1024
-    cipher = request.param()
-    if request.param is RSA:
-        cipher.generate(key_size)
-    else:
-        cipher.generate()
+    cipher = RSA()
+    cipher.generate(key_size)
+    return cipher
+
+
+@pytest.fixture(params=product([ECKEY, ECKEY_DH, ECDSA],
+                               get_supported_curves()))
+def ecp(request):
+    cls, curve = request.param
+    cipher = cls()
+    cipher.generate(curve)
     return cipher
 
 
