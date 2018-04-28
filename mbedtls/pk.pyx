@@ -65,12 +65,19 @@ cpdef get_supported_ciphers():
 def get_supported_curves():
     cdef const mbedtls_ecp_curve_info* info = mbedtls_ecp_curve_list()
     names, idx = [], 0
-    while True:
-        if info[idx].name == NULL:
-            break
+    while info[idx].name != NULL:
         names.append(bytes(info[idx].name))
         idx += 1
     return names
+
+
+cdef curve_name_to_grp_id(name):
+    cdef const mbedtls_ecp_curve_info* info = mbedtls_ecp_curve_list()
+    idx = 0
+    while info[idx].name != NULL:
+        if info[idx].name == name:
+            return info.grp_id
+        idx += 1
 
 
 cdef _random.Random __rng = _random.Random()
@@ -433,9 +440,11 @@ cdef class ECBase(CipherBase):
         cdef mbedtls_ecp_keypair* ecp = _pk.mbedtls_pk_ec(self._ctx)
         return not _pk.mbedtls_ecp_is_zero(&ecp.Q)
 
-    def generate(self):
+    def generate(self, curve):
         """Generate an EC keypair."""
-        grp_id = _pk.mbedtls_ecp_group_id.MBEDTLS_ECP_DP_SECP192R1
+        grp_id = curve_name_to_grp_id(curve)
+        if grp_id is None:
+            raise ValueError(curve)
         check_error(_pk.mbedtls_ecp_gen_key(
             grp_id, _pk.mbedtls_pk_ec(self._ctx),
             &_random.mbedtls_ctr_drbg_random, &__rng._ctx))

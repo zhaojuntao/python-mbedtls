@@ -20,7 +20,6 @@ def cipher(request):
     return CipherBase(name)
 
 
-# @pytest.fixture(params=[RSA, ECKEY, ECKEY_DH, ECDSA])
 @pytest.fixture(params=[RSA])
 def rsa(request):
     key_size = 1024
@@ -32,11 +31,13 @@ def rsa(request):
     return cipher
 
 
-def test_ec_generate():
-    ec = ECKEY()
+@pytest.mark.parametrize("cls", [ECKEY, ECKEY_DH, ECDSA])
+@pytest.mark.parametrize("curve", get_supported_curves())
+def test_ec_generate(cls, curve):
+    ec = cls()
     assert not ec.has_public()
     assert not ec.has_private()
-    ec.generate()
+    ec.generate(curve)
     assert ec.has_public()
     assert ec.has_private()
 

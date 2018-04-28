@@ -37,6 +37,7 @@ cdef extern from "mbedtls/ecp.h":
         MBEDTLS_ECP_DP_SECP256K1
 
     ctypedef struct mbedtls_ecp_curve_info:
+        mbedtls_ecp_group_id grp_id
         int bit_size
         const char *name
 
