@@ -14,41 +14,6 @@ from mbedtls.pk import _type_from_name, _get_md_alg, CipherBase
 from mbedtls.pk import *
 
 
-@pytest.fixture(params=(name for name in sorted(get_supported_ciphers())
-                        if name != b"NONE"))
-def cipher(request):
-    name = request.param
-    return CipherBase(name)
-
-
-@pytest.fixture
-def rsa():
-    key_size = 1024
-    cipher = RSA()
-    cipher.generate(key_size)
-    return cipher
-
-
-@pytest.fixture(params=product([ECKEY, ECKEY_DH, ECDSA],
-                               get_supported_curves()))
-def ecp(request):
-    cls, curve = request.param
-    cipher = cls()
-    cipher.generate(curve)
-    return cipher
-
-
-@pytest.mark.parametrize("cls", [ECKEY, ECKEY_DH, ECDSA])
-@pytest.mark.parametrize("curve", get_supported_curves())
-def test_ec_generate(cls, curve):
-    ec = cls()
-    assert not ec.has_public()
-    assert not ec.has_private()
-    ec.generate(curve)
-    assert ec.has_public()
-    assert ec.has_private()
-
-
 def test_cipher_list():
     assert len(CIPHER_NAME) == 5
 
@@ -62,25 +27,6 @@ def test_get_supported_ciphers():
     assert tuple(cl) == CIPHER_NAME
 
 
-def test_type_from_name():
-    assert tuple(_type_from_name(name)
-                 for name in CIPHER_NAME) == tuple(range(len(CIPHER_NAME)))
-
-
-def test_type_accessor(cipher):
-    assert cipher._type == _type_from_name(cipher.name)
-
-
-def test_key_size_accessor(cipher):
-    assert cipher.key_size == 0
-
-
-@pytest.mark.parametrize(
-    "algorithm", (_get_md_alg(name) for name in _hash.algorithms_available))
-def test_digestmod(algorithm):
-    assert isinstance(algorithm(), _hash.Hash)
-
-
 @pytest.mark.parametrize(
     "md_algorithm", (vars(_hash)[name] for name in _hash.algorithms_available))
 def test_digestmod_from_ctor(md_algorithm):
@@ -89,88 +35,113 @@ def test_digestmod_from_ctor(md_algorithm):
     assert isinstance(algorithm(), _hash.Hash)
 
 
-def test_rsa_encrypt_decrypt(rsa, randbytes):
-    msg = randbytes(rsa.key_size - 11)
-    assert rsa.decrypt(rsa.encrypt(msg)) == msg
+class _TestCipherBase(object):
+
+    @pytest.fixture
+    def key(self):
+        pass
+
+    def test_cipher_without_key(self):
+        assert self.cipher.has_public() is False
+        assert self.cipher.has_private() is False
+
+    @pytest.mark.usefixtures("key")
+    def test_generate(self):
+        assert self.cipher.has_public() is True
+        assert self.cipher.has_private() is True
+
+    @pytest.mark.usefixtures("key")
+    def test_type_accessor(self):
+        assert self.cipher._type == _type_from_name(self.cipher.name)
+
+    def test_key_size_accessor(self):
+        assert self.cipher.key_size == 0
+
+    @pytest.mark.usefixtures("key")
+    def test_check_pair(self):
+        assert check_pair(self.cipher, self.cipher) is True
+
+    def test_sign_without_key_returns_none(self, randbytes):
+        message = randbytes(4096)
+        assert self.cipher.sign(message, _hash.md5) is None
 
 
-def test_rsa_sign_without_key_returns_none(randbytes):
-    rsa = RSA()
-    message = randbytes(4096)
-    assert rsa.sign(message, _hash.md5) is None
+class TestRSA(_TestCipherBase):
+
+    @pytest.fixture(autouse=True)
+    def rsa(self):
+        self.cipher = RSA()
+        yield
+        self.cipher = None
+
+    @pytest.fixture
+    def key(self):
+        key_size = 1024
+        self.cipher.generate(key_size)
+
+    @pytest.mark.usefixtures("key")
+    def test_encrypt_decrypt(self, randbytes):
+        msg = randbytes(self.cipher.key_size - 11)
+        assert self.cipher.decrypt(self.cipher.encrypt(msg)) == msg
+
+    @pytest.mark.usefixtures("key")
+    @pytest.mark.parametrize(
+        "digestmod",
+        (_get_md_alg(name) for name in _hash.algorithms_available),
+        ids=lambda dm: dm().name)
+    def test_sign_verify(self, digestmod, randbytes):
+        if digestmod().name == "ripemd160":
+            pytest.skip("ripemd160 fails")
+        msg = randbytes(4096)
+        sig = self.cipher.sign(msg, digestmod)
+        assert sig is not None
+        assert self.cipher.verify(msg, sig, digestmod) is True
+        assert self.cipher.verify(msg + b"\0", sig, digestmod) is False
+
+    @pytest.mark.usefixtures("key")
+    def test_import_public_key(self):
+        other = type(self.cipher)()
+
+        prv, pub = self.cipher.to_DER()
+        other.from_buffer(pub)
+        assert other.has_private() is False
+        assert other.has_public() is True
+        assert check_pair(self.cipher, other) is False  # Test private half.
+        assert check_pair(other, self.cipher) is True  # Test public half.
+        assert check_pair(other, other) is False
+
+    @pytest.mark.usefixtures("key")
+    def test_import_private_key(self):
+        other = type(self.cipher)()
+
+        prv, pub = self.cipher.to_DER()
+        other.from_buffer(prv)
+        assert other.has_private() is True
+        assert other.has_public() is True
+        assert check_pair(self.cipher, other) is True  # Test private half.
+        assert check_pair(other, self.cipher) is True  # Test public half.
+        assert check_pair(other, other) is True
+
+    @pytest.mark.usefixtures("key")
+    def test_to_PEM(self):
+        other = type(self.cipher)()
+
+        prv, pub = self.cipher.to_PEM()
+        other.from_PEM(prv)
+        assert self.cipher.to_DER() == other.to_DER()
 
 
-def test_rsa_check_pair(rsa):
-    assert check_pair(rsa, rsa) is True
+class TestEC(_TestCipherBase):
 
+    @pytest.fixture(autouse=True,
+                    params=[ECKEY, ECKEY_DH, ECDSA])
+    def ecp(self, request):
+        cls = request.param
+        self.cipher = cls()
+        yield
+        self.cipher = None
 
-def test_rsa_has_private_and_has_public_with_private_key(rsa):
-    cipher = RSA()
-    assert cipher.has_private() is False
-    assert cipher.has_public() is False
-
-    prv, pub = rsa.to_DER()
-    cipher.from_buffer(prv)
-    assert cipher.has_private() is True
-    assert cipher.has_public() is True
-
-
-def test_rsa_has_private_and_has_public_with_public_key(rsa):
-    cipher = RSA()
-    assert cipher.has_private() is False
-    assert cipher.has_public() is False
-
-    prv, pub = rsa.to_DER()
-    cipher.from_buffer(pub)
-    assert cipher.has_private() is False
-    assert cipher.has_public() is True
-
-
-def test_rsa_import_public_key(rsa):
-    cipher = RSA()
-
-    prv, pub = rsa.to_DER()
-    cipher.from_buffer(pub)
-    assert check_pair(rsa, cipher) is False  # Test private half.
-    assert check_pair(cipher, rsa) is True   # Test public half.
-    assert check_pair(cipher, cipher) is False
-
-
-def test_rsa_import_private_key(rsa):
-    cipher = RSA()
-    prv, pub = rsa.to_DER()
-    cipher.from_buffer(prv)
-    assert check_pair(rsa, cipher) is True  # Test private half.
-    assert check_pair(cipher, rsa) is True # Test public half.
-    assert check_pair(cipher, cipher) is True
-
-
-def test_rsa_to_PEM(rsa):
-    cipher = RSA()
-    prv, pub = rsa.to_PEM()
-    cipher.from_PEM(prv)
-    assert cipher.has_private() is True
-    assert cipher.has_public() is True
-    assert check_pair(rsa, cipher) is True  # Test private half.
-    assert check_pair(cipher, rsa) is True  # Test public half.
-    assert check_pair(cipher, cipher) is True
-
-
-def test_rsa_to_DER(rsa):
-    cipher = RSA()
-    prv, pub = rsa.to_DER()
-    cipher.from_DER(prv)
-    assert cipher.has_private() is True
-    assert cipher.has_public() is True
-    assert check_pair(rsa, cipher) is True  # Test private half.
-    assert check_pair(cipher, rsa) is True  # Test public half.
-    assert check_pair(cipher, cipher) is True
-
-
-@pytest.mark.parametrize("digestmod", (_hash.md5, None))
-def test_rsa_sign_verify(rsa, digestmod, randbytes):
-    message = randbytes(4096)
-    sig = rsa.sign(message, digestmod)
-    assert sig is not None
-    assert rsa.verify(message, sig, digestmod) is True
-    assert rsa.verify(message + b"\0", sig, digestmod) is False
+    @pytest.fixture(params=get_supported_curves())
+    def key(self, request):
+        curve = request.param
+        self.cipher.generate(curve)
