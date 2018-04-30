@@ -13,6 +13,11 @@ from mbedtls.exceptions import _ErrorBase
 from mbedtls.pk import _type_from_name, _get_md_alg, CipherBase
 from mbedtls.pk import *
 
+try:
+    long
+except NameError:
+    long = int
+
 
 def test_cipher_list():
     assert len(CIPHER_NAME) == 5
@@ -175,17 +180,17 @@ class _TestECBase(_TestCipherBase):
     @pytest.mark.usefixtures("key")
     def test_public_value_accessor(self):
         pub = self.cipher.public_value
-        assert isinstance(pub.x, int)
-        assert isinstance(pub.y, int)
-        assert isinstance(pub.z, int)
+        assert isinstance(pub.x, long)
+        assert isinstance(pub.y, long)
+        assert isinstance(pub.z, long)
         assert pub.x not in (0, pub.y, pub.z)
         assert pub.y not in (0, pub.x, pub.z)
-        assert pub.z not in (0, pub.x, pub.y)
+        assert pub.z in (0, 1)
 
     @pytest.mark.usefixtures("key")
     def test_private_value_accessor(self):
         prv = self.cipher.private_value
-        assert isinstance(prv, int)
+        assert isinstance(prv, long)
         assert prv != 0
 
 
