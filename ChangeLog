@@ -1,3 +1,15 @@
+Support elliptic curve cryptography
+
+* pk/EC: Elliptic curve cryptography
+* pk/ECDH: Elliptic curve Diffie-Hellman
+* pk/ECDSA: Elliptic curve digital signature algorithm
+
+Bugfix
+
+* pk: Increase the size of the buffer for sign, encrypt, decrypt
+
+Misc.
+
 * Use const memoryviews supported by Cython 0.28.0.
 * pk: pk is now a module instead of a package.
 

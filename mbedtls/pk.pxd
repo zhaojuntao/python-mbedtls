@@ -115,6 +115,53 @@ cdef extern from "mbedtls/ecp.h":
         void *p_rng)
 
 
+cdef extern from "mbedtls/ecdh.h":
+    ctypedef enum mbedtls_ecdh_side:
+        MBEDTLS_ECDH_OURS
+        MBEDTLS_ECDH_THEIRS
+
+    ctypedef struct mbedtls_ecdh_context:
+        pass
+
+    # mbedtls_ecp_group
+    # -----------------
+    # mbedtls_ecdh_gen_public
+    # mbedtls_ecdh_compute_shared
+
+    # mbedtls_ecdh_context
+    # --------------------
+    # mbedtls_ecdh_init
+    # mbedtls_ecdh_free
+
+    # mbedtls_ecdh_get_params
+    # mbedtls_ecdh_make_params
+    # mbedtls_ecdh_make_public
+    # mbedtls_ecdh_read_params
+    # mbedtls_ecdh_read_public
+    # mbedtls_ecdh_calc_secret
+
+
+cdef extern from "mbedtls/ecdsa.h":
+    ctypedef struct mbedtls_ecdsa_context:
+        pass
+
+    # mbedtls_ecp_group
+    # -----------------
+    # mbedtls_ecdsa_sign
+    # mbedtls_ecdsa_sign_det
+    # mbedtls_ecdsa_verify
+
+    # mbedtls_ecdsa_context
+    # ---------------------
+    # mbedtls_ecdsa_write_signature
+    # mbedtls_ecdsa_write_signature_det
+    # mbedtls_ecdsa_read_signature
+    # mbedtls_ecdsa_genkey
+    # mbedtls_ecdsa_from_keypair
+    # mbedtls_ecdsa_init
+    # mbedtls_ecdsa_free
+
+
 cdef extern from "mbedtls/rsa.h":
     ctypedef struct mbedtls_rsa_context:
         pass
