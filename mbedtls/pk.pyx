@@ -26,8 +26,8 @@ __all__ = ("CIPHER_NAME", "check_pair",
 CIPHER_NAME = (
     b"NONE",
     b"RSA",
-    b"EC",     # EC
-    b"EC_DH",  # ECDH
+    b"EC",
+    b"EC_DH",
     b"ECDSA",
     # b"RSA_ALT",
     # b"RSASSA_PSS",
