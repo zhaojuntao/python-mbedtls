@@ -39,7 +39,7 @@ class _TestCipherBase(object):
 
     @pytest.fixture
     def key(self):
-        pass
+        raise NotImplementedError
 
     def test_cipher_without_key(self):
         assert self.cipher.has_public() is False
@@ -109,6 +109,7 @@ class TestRSA(_TestCipherBase):
         assert check_pair(self.cipher, other) is False  # Test private half.
         assert check_pair(other, self.cipher) is True  # Test public half.
         assert check_pair(other, other) is False
+        assert self.cipher != other
 
     @pytest.mark.usefixtures("key")
     def test_import_private_key(self):
@@ -121,6 +122,7 @@ class TestRSA(_TestCipherBase):
         assert check_pair(self.cipher, other) is True  # Test private half.
         assert check_pair(other, self.cipher) is True  # Test public half.
         assert check_pair(other, other) is True
+        assert self.cipher == other
 
     @pytest.mark.usefixtures("key")
     def test_to_PEM(self):

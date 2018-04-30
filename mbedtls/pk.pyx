@@ -126,6 +126,11 @@ cdef class CipherBase:
         """Free and clear the context."""
         _pk.mbedtls_pk_free(&self._ctx)
 
+    def __eq__(self, other):
+        if type(other) is not type(self):
+            return NotImplemented
+        return self.to_DER() == other.to_DER()
+
     property _type:
         """Return the type of the cipher."""
         def __get__(self):
