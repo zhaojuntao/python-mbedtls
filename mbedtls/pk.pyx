@@ -129,7 +129,10 @@ cdef class CipherBase:
     def __eq__(self, other):
         if type(other) is not type(self):
             return NotImplemented
-        return self.to_DER() == other.to_DER()
+        try:
+            return self.to_DER() == other.to_DER()
+        except PkError:
+            return False
 
     property _type:
         """Return the type of the cipher."""
@@ -199,23 +202,23 @@ cdef class CipherBase:
         """
         if digestmod is None:
             digestmod = 'sha256'
+        if not self.has_private():
+            return None
         md_alg = _get_md_alg(digestmod)(message)
         cdef const unsigned char[:] hash_ = md_alg.digest()
         cdef size_t sig_len = 0
         cdef unsigned char* output = <unsigned char*>malloc(
-            self.key_size * sizeof(unsigned char))
+            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         if not output:
             raise MemoryError()
         try:
-            _pk.mbedtls_pk_sign(
+            check_error(_pk.mbedtls_pk_sign(
                 &self._ctx, md_alg._type,
                 &hash_[0], hash_.size,
                 &output[0], &sig_len,
-                &_random.mbedtls_ctr_drbg_random, &__rng._ctx)
-            if sig_len == 0:
-                return None
-            else:
-                return bytes(output[:sig_len])
+                &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+            assert sig_len != 0
+            return bytes(output[:sig_len])
         finally:
             free(output)
 
@@ -228,7 +231,7 @@ cdef class CipherBase:
         """
         cdef size_t olen = 0
         cdef unsigned char* output = <unsigned char*>malloc(
-            self.key_size * sizeof(unsigned char))
+            _pk.MBEDTLS_MPI_MAX_SIZE // 2 * sizeof(unsigned char))
         if not output:
             raise MemoryError()
         try:
@@ -249,7 +252,7 @@ cdef class CipherBase:
         """
         cdef size_t olen = 0
         cdef unsigned char* output = <unsigned char*>malloc(
-            self.key_size * sizeof(unsigned char))
+            _pk.MBEDTLS_MPI_MAX_SIZE // 2 * sizeof(unsigned char))
         if not output:
             raise MemoryError()
         try:

@@ -28,7 +28,7 @@ def test_get_supported_ciphers():
 
 
 @pytest.mark.parametrize(
-    "md_algorithm", (vars(_hash)[name] for name in _hash.algorithms_available))
+    "md_algorithm", [vars(_hash)[name] for name in _hash.algorithms_available])
 def test_digestmod_from_ctor(md_algorithm):
     assert callable(md_algorithm)
     algorithm = _get_md_alg(md_algorithm)
@@ -58,45 +58,38 @@ class _TestCipherBase(object):
         assert self.cipher.key_size == 0
 
     @pytest.mark.usefixtures("key")
+    def test_key_size_accessor_with_key(self):
+        assert self.cipher.key_size != 0
+
+    @pytest.mark.usefixtures("key")
     def test_check_pair(self):
         assert check_pair(self.cipher, self.cipher) is True
 
-    def test_sign_without_key_returns_none(self, randbytes):
+    @pytest.mark.parametrize(
+        "digestmod",
+        [_get_md_alg(name) for name in _hash.algorithms_guaranteed],
+        ids=lambda dm: dm().name)
+    def test_sign_without_key_returns_none(self, digestmod, randbytes):
         message = randbytes(4096)
-        assert self.cipher.sign(message, _hash.md5) is None
-
-
-class TestRSA(_TestCipherBase):
-
-    @pytest.fixture(autouse=True)
-    def rsa(self):
-        self.cipher = RSA()
-        yield
-        self.cipher = None
-
-    @pytest.fixture
-    def key(self):
-        key_size = 1024
-        self.cipher.generate(key_size)
-
-    @pytest.mark.usefixtures("key")
-    def test_encrypt_decrypt(self, randbytes):
-        msg = randbytes(self.cipher.key_size - 11)
-        assert self.cipher.decrypt(self.cipher.encrypt(msg)) == msg
+        assert self.cipher.sign(message, digestmod) is None
 
     @pytest.mark.usefixtures("key")
     @pytest.mark.parametrize(
         "digestmod",
-        (_get_md_alg(name) for name in _hash.algorithms_available),
+        [_get_md_alg(name) for name in _hash.algorithms_guaranteed],
         ids=lambda dm: dm().name)
     def test_sign_verify(self, digestmod, randbytes):
-        if digestmod().name == "ripemd160":
-            pytest.skip("ripemd160 fails")
+        if type(self.cipher) is ECKEY_DH:
+            pytest.skip("type mismatch")
+
         msg = randbytes(4096)
         sig = self.cipher.sign(msg, digestmod)
         assert sig is not None
         assert self.cipher.verify(msg, sig, digestmod) is True
         assert self.cipher.verify(msg + b"\0", sig, digestmod) is False
+
+
+class _TestCipherBaseExportable(_TestCipherBase):
 
     @pytest.mark.usefixtures("key")
     def test_import_public_key(self):
@@ -130,18 +123,55 @@ class TestRSA(_TestCipherBase):
 
         prv, pub = self.cipher.to_PEM()
         other.from_PEM(prv)
-        assert self.cipher.to_DER() == other.to_DER()
+        assert self.cipher == other
 
 
-class TestEC(_TestCipherBase):
+class TestRSA(_TestCipherBaseExportable):
 
-    @pytest.fixture(autouse=True,
-                    params=[ECKEY, ECKEY_DH, ECDSA])
-    def ecp(self, request):
-        cls = request.param
-        self.cipher = cls()
-        yield
-        self.cipher = None
+    @pytest.fixture(autouse=True)
+    def rsa(self):
+        self.cipher = RSA()
+
+    @pytest.fixture
+    def key(self):
+        key_size = 1024
+        self.cipher.generate(key_size)
+
+    @pytest.mark.usefixtures("key")
+    def test_encrypt_decrypt(self, randbytes):
+        msg = randbytes(self.cipher.key_size - 11)
+        assert self.cipher.decrypt(self.cipher.encrypt(msg)) == msg
+
+
+class TestEC(_TestCipherBaseExportable):
+
+    @pytest.fixture(autouse=True)
+    def ecp(self):
+        self.cipher = ECKEY()
+
+    @pytest.fixture(params=get_supported_curves())
+    def key(self, request):
+        curve = request.param
+        self.cipher.generate(curve)
+
+
+class TestECDH(_TestCipherBase):
+
+    @pytest.fixture(autouse=True)
+    def ecp(self):
+        self.cipher = ECKEY_DH()
+
+    @pytest.fixture(params=get_supported_curves())
+    def key(self, request):
+        curve = request.param
+        self.cipher.generate(curve)
+
+
+class TestECDSA(_TestCipherBase):
+
+    @pytest.fixture(autouse=True)
+    def ecp(self):
+        self.cipher = ECDSA()
 
     @pytest.fixture(params=get_supported_curves())
     def key(self, request):
