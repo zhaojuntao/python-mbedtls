@@ -9,12 +9,11 @@ __license__ = "MIT License"
 
 
 cdef extern from "mbedtls/md.h":
-    ctypedef enum mbedtls_md_type_t:
-        pass
+    ctypedef enum mbedtls_md_type_t: pass
 
 
 cdef extern from "mbedtls/bignum.h":
-    ctypedef enum mbedtls_mpi:
+    ctypedef struct mbedtls_mpi:
         pass
 
     int MBEDTLS_MPI_MAX_SIZE

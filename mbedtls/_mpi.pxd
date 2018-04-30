@@ -8,7 +8,9 @@ __license__ = "MIT License"
 cdef extern from "mbedtls/bignum.h":
     # Multi-precision integer library
     # -------------------------------
-    ctypedef enum mbedtls_mpi: pass
+    ctypedef struct mbedtls_mpi:
+        pass
+
     ctypedef enum mbedtls_mpi_sint: pass
 
     # mbedtls_mpi
