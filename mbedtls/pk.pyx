@@ -20,14 +20,14 @@ import mbedtls.hash as _hash
 
 __all__ = ("CIPHER_NAME", "check_pair",
            "get_supported_ciphers", "get_supported_curves",
-           "RSA", "ECKEY", "ECKEY_DH", "ECDSA")
+           "RSA", "EC", "ECDH", "ECDSA")
 
 
 CIPHER_NAME = (
     b"NONE",
     b"RSA",
-    b"EC",     # ECKEY
-    b"EC_DH",  # ECKEY_DH
+    b"EC",     # EC
+    b"EC_DH",  # ECDH
     b"ECDSA",
     # b"RSA_ALT",
     # b"RSASSA_PSS",
@@ -390,9 +390,29 @@ cdef class ECPoint:
         """Free and clear the context."""
         _pk.mbedtls_ecp_point_free(&self._ctx)
 
+    property x:
+        """Return the X coordinate."""
+        def __get__(self):
+            return int(_mpi.from_mpi(&self._ctx.X))
+
+    property y:
+        """Return the Y coordinate."""
+        def __get__(self):
+            return int(_mpi.from_mpi(&self._ctx.Y))
+
+    property z:
+        """Return the Z coordinate."""
+        def __get__(self):
+            return int(_mpi.from_mpi(&self._ctx.Z))
+
+    def __str__(self):
+        return "(%i, %i, %i)" % (self.x, self.y, self.z)
+
     def __eq__(self, other):
+        if other == 0:
+            return _pk.mbedtls_ecp_is_zero(&self._ctx) == 1
         if other.__class__ != self.__class__:
-            return False
+            return NotImplemented
         c_other = <ECPoint> other
         return _pk.mbedtls_ecp_point_cmp(&self._ctx, &c_other._ctx)
 
@@ -400,10 +420,6 @@ cdef class ECPoint:
         cdef ECPoint other = ECPoint()
         check_error(_pk.mbedtls_ecp_copy(&other._ctx, &self._ctx))
         return other
-
-    def is_zero(self):
-        """Return True if point is 0, False otherwise."""
-        return _pk.mbedtls_ecp_is_zero(&self._ctx) == 1
 
 
 cdef class ECGroup:
@@ -457,13 +473,28 @@ cdef class ECBase(CipherBase):
             grp_id, _pk.mbedtls_pk_ec(self._ctx),
             &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
 
+    property public_value:
+        """Return a copy of the public value."""
+        def __get__(self):
+            point = ECPoint()
+            _pk.mbedtls_ecp_copy(&point._ctx, &_pk.mbedtls_pk_ec(self._ctx).Q)
+            return point
 
-cdef class ECKEY(ECBase):
+    property private_value:
+        """Return a copy of the secret value."""
+        def __get__(self):
+            try:
+                return int(_mpi.from_mpi(&_pk.mbedtls_pk_ec(self._ctx).d))
+            except ValueError:
+                return 0
+
+
+cdef class EC(ECBase):
     def __init__(self):
         super().__init__(b"EC")
 
 
-cdef class ECKEY_DH(ECBase):
+cdef class ECDH(ECBase):
     def __init__(self):
         super().__init__(b"EC_DH")
 

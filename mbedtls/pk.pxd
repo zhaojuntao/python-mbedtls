@@ -42,7 +42,9 @@ cdef extern from "mbedtls/ecp.h":
         const char *name
 
     ctypedef struct mbedtls_ecp_point:
-        pass
+        mbedtls_mpi X
+        mbedtls_mpi Y
+        mbedtls_mpi Z
 
     ctypedef struct mbedtls_ecp_group:
         pass

@@ -79,7 +79,7 @@ class _TestCipherBase(object):
         [_get_md_alg(name) for name in _hash.algorithms_guaranteed],
         ids=lambda dm: dm().name)
     def test_sign_verify(self, digestmod, randbytes):
-        if type(self.cipher) is ECKEY_DH:
+        if type(self.cipher) is ECDH:
             pytest.skip("type mismatch")
 
         msg = randbytes(4096)
@@ -131,6 +131,8 @@ class TestRSA(_TestCipherBaseExportable):
     @pytest.fixture(autouse=True)
     def rsa(self):
         self.cipher = RSA()
+        yield
+        self.cipher = None
 
     @pytest.fixture
     def key(self):
@@ -147,7 +149,9 @@ class TestEC(_TestCipherBaseExportable):
 
     @pytest.fixture(autouse=True)
     def ecp(self):
-        self.cipher = ECKEY()
+        self.cipher = EC()
+        yield
+        self.cipher = None
 
     @pytest.fixture(params=get_supported_curves())
     def key(self, request):
@@ -155,25 +159,45 @@ class TestEC(_TestCipherBaseExportable):
         self.cipher.generate(curve)
 
 
-class TestECDH(_TestCipherBase):
+class _TestECBase(_TestCipherBase):
+
+    @pytest.fixture(params=get_supported_curves())
+    def key(self, request):
+        curve = request.param
+        self.cipher.generate(curve)
+
+    def test_public_value_accessor_without_key(self):
+        assert self.cipher.public_value == 0
+
+    def test_private_value_accessor_without_key(self):
+        assert self.cipher.private_value == 0
+
+    @pytest.mark.usefixtures("key")
+    def test_public_value_accessor(self):
+        pub = self.cipher.public_value
+        assert isinstance(pub.x, int)
+        assert isinstance(pub.y, int)
+        assert isinstance(pub.z, int)
+        assert pub.x not in (0, pub.y, pub.z)
+        assert pub.y not in (0, pub.x, pub.z)
+        assert pub.z not in (0, pub.x, pub.y)
+
+    @pytest.mark.usefixtures("key")
+    def test_private_value_accessor(self):
+        prv = self.cipher.private_value
+        assert isinstance(prv, int)
+        assert prv != 0
+
+
+class TestECDH(_TestECBase):
 
     @pytest.fixture(autouse=True)
     def ecp(self):
-        self.cipher = ECKEY_DH()
-
-    @pytest.fixture(params=get_supported_curves())
-    def key(self, request):
-        curve = request.param
-        self.cipher.generate(curve)
+        self.cipher = ECDH()
 
 
-class TestECDSA(_TestCipherBase):
+class TestECDSA(_TestECBase):
 
     @pytest.fixture(autouse=True)
     def ecp(self):
         self.cipher = ECDSA()
-
-    @pytest.fixture(params=get_supported_curves())
-    def key(self, request):
-        curve = request.param
-        self.cipher.generate(curve)

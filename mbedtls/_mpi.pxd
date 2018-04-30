@@ -18,7 +18,9 @@ cdef extern from "mbedtls/bignum.h":
 
     # mbedtls_mpi_grow
     # mbedtls_mpi_shrink
-    # mbedtls_mpi_copy
+
+    int mbedtls_mpi_copy(mbedtls_mpi *X, const mbedtls_mpi *Y)
+
     # mbedtls_mpi_swap
     # mbedtls_mpi_safe_cond_assign
     # mbedtls_mpi_safe_cond_swap
@@ -75,3 +77,9 @@ cdef class MPI:
     cdef mbedtls_mpi _ctx
     cdef _len(self)
     cpdef _from_bytes(self, const unsigned char[:] bytes)
+
+
+cdef inline from_mpi(mbedtls_mpi *c_mpi):
+    new_mpi = MPI(0)
+    mbedtls_mpi_copy(&new_mpi._ctx, c_mpi)
+    return new_mpi
