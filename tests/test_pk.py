@@ -90,9 +90,6 @@ class _TestCipherBase(object):
         assert self.cipher.verify(msg, sig, digestmod) is True
         assert self.cipher.verify(msg + b"\0", sig, digestmod) is False
 
-
-class _TestCipherBaseExportable(_TestCipherBase):
-
     @pytest.mark.usefixtures("key")
     def test_import_public_key(self):
         other = type(self.cipher)()
@@ -128,7 +125,7 @@ class _TestCipherBaseExportable(_TestCipherBase):
         assert self.cipher == other
 
 
-class TestRSA(_TestCipherBaseExportable):
+class TestRSA(_TestCipherBase):
 
     @pytest.fixture(autouse=True)
     def rsa(self):
@@ -147,21 +144,13 @@ class TestRSA(_TestCipherBaseExportable):
         assert self.cipher.decrypt(self.cipher.encrypt(msg)) == msg
 
 
-class TestEC(_TestCipherBaseExportable):
+class TestECC(_TestCipherBase):
 
     @pytest.fixture(autouse=True)
     def ecp(self):
-        self.cipher = EC()
+        self.cipher = ECC()
         yield
         self.cipher = None
-
-    @pytest.fixture(params=get_supported_curves())
-    def key(self, request):
-        curve = request.param
-        self.cipher.generate(curve)
-
-
-class _TestECBase(_TestCipherBase):
 
     @pytest.fixture(params=get_supported_curves())
     def key(self, request):
@@ -191,7 +180,7 @@ class _TestECBase(_TestCipherBase):
         assert prv != 0
 
 
-class TestECDH:
+class _TestECDH:
     # From test_suite_ecdh.function
 
     @pytest.fixture(autouse=True, params=get_supported_curves())
@@ -212,10 +201,3 @@ class TestECDH:
         assert srv_sec == cli_sec
         assert self.srv.shared_secret == srv_sec
         assert self.cli.shared_secret == cli_sec
-
-
-class TestECDSA(_TestECBase):
-
-    @pytest.fixture(autouse=True)
-    def ecp(self):
-        self.cipher = ECDSA()

@@ -168,6 +168,8 @@ cdef extern from "mbedtls/ecdsa.h":
     ctypedef struct mbedtls_ecdsa_context:
         pass
 
+    int MBEDTLS_ECDSA_MAX_LEN
+
     # mbedtls_ecp_group
     # -----------------
     # mbedtls_ecdsa_sign
@@ -176,13 +178,14 @@ cdef extern from "mbedtls/ecdsa.h":
 
     # mbedtls_ecdsa_context
     # ---------------------
+    void mbedtls_ecdsa_init(mbedtls_ecdsa_context *ctx)
+    void mbedtls_ecdsa_free(mbedtls_ecdsa_context *ctx)
+
     # mbedtls_ecdsa_write_signature
     # mbedtls_ecdsa_write_signature_det
     # mbedtls_ecdsa_read_signature
     # mbedtls_ecdsa_genkey
     # mbedtls_ecdsa_from_keypair
-    # mbedtls_ecdsa_init
-    # mbedtls_ecdsa_free
 
 
 cdef extern from "mbedtls/rsa.h":
@@ -335,3 +338,7 @@ cdef class ECKeyPair:
 
 cdef class ECDHBase:
     cdef mbedtls_ecdh_context _ctx
+
+
+cdef class ECDSA:
+    cdef mbedtls_ecdsa_context _ctx

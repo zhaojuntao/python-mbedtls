@@ -20,7 +20,7 @@ import mbedtls.hash as _hash
 
 __all__ = ("CIPHER_NAME", "check_pair",
            "get_supported_ciphers", "get_supported_curves",
-           "RSA", "EC", "ECDHServer", "ECDHClient", "ECDSA")
+           "RSA", "ECC", "ECDHServer", "ECDHClient", "ECDSA")
 
 
 CIPHER_NAME = (
@@ -162,30 +162,6 @@ cdef class CipherBase:
         """Return `True` if the key contains a valid public half."""
         raise NotImplementedError
 
-    def verify(self,
-               const unsigned char[:] message not None,
-               const unsigned char[:] signature not None,
-               digestmod=None):
-        """Verify signature, including padding if relevant.
-
-        Arguments:
-            message (bytes): The message to sign.
-            signature (bytes): The signature to verify.
-            digestmod (optional): The digest name or digest constructor.
-
-        Return:
-            bool: True if the verification passed, False otherwise.
-
-        """
-        if digestmod is None:
-            digestmod = 'sha256'
-        md_alg = _get_md_alg(digestmod)(message)
-        cdef const unsigned char[:] hash_ = md_alg.digest()
-        return _pk.mbedtls_pk_verify(
-            &self._ctx, md_alg._type,
-            &hash_[0], hash_.size,
-            &signature[0], signature.size) == 0
-
     def sign(self,
              const unsigned char[:] message not None,
              digestmod=None):
@@ -221,6 +197,30 @@ cdef class CipherBase:
             return bytes(output[:sig_len])
         finally:
             free(output)
+
+    def verify(self,
+               const unsigned char[:] message not None,
+               const unsigned char[:] signature not None,
+               digestmod=None):
+        """Verify signature, including padding if relevant.
+
+        Arguments:
+            message (bytes): The message to sign.
+            signature (bytes): The signature to verify.
+            digestmod (optional): The digest name or digest constructor.
+
+        Return:
+            bool: True if the verification passed, False otherwise.
+
+        """
+        if digestmod is None:
+            digestmod = 'sha256'
+        md_alg = _get_md_alg(digestmod)(message)
+        cdef const unsigned char[:] hash_ = md_alg.digest()
+        return _pk.mbedtls_pk_verify(
+            &self._ctx, md_alg._type,
+            &hash_[0], hash_.size,
+            &signature[0], signature.size) == 0
 
     def encrypt(self, const unsigned char[:] message not None):
         """Encrypt message (including padding if relevant).
@@ -447,12 +447,12 @@ cdef class ECKeyPair:
         _pk.mbedtls_ecp_keypair_free(&self._ctx)
 
 
-cdef class ECBase(CipherBase):
+cdef class ECC(CipherBase):
 
-    """Base to elliptic-curve cryptosystems."""
+    """Elliptic-curve cryptosystems."""
 
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self):
+        super().__init__(b"EC")
 
     cpdef bint has_private(self):
         """Return `True` if the key contains a valid private half."""
@@ -487,11 +487,6 @@ cdef class ECBase(CipherBase):
                 return int(_mpi.from_mpi(&_pk.mbedtls_pk_ec(self._ctx).d))
             except ValueError:
                 return 0
-
-
-cdef class EC(ECBase):
-    def __init__(self):
-        super().__init__(b"EC")
 
 
 cdef class ECDHBase:
@@ -587,6 +582,11 @@ cdef class ECDHClient(ECDHBase):
             free(output)
 
 
-cdef class ECDSA(ECBase):
-    def __init__(self):
-        super().__init__(b"ECDSA")
+cdef class ECDSA:
+    def __cinit__(self):
+        """Initialize the context."""
+        _pk.mbedtls_ecdsa_init(&self._ctx)
+
+    def __dealloc__(self):
+        """Free and clear the context."""
+        _pk.mbedtls_ecdsa_free(&self._ctx)
