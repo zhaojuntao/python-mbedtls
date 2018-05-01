@@ -84,9 +84,6 @@ class _TestCipherBase(object):
         [_get_md_alg(name) for name in _hash.algorithms_guaranteed],
         ids=lambda dm: dm().name)
     def test_sign_verify(self, digestmod, randbytes):
-        if type(self.cipher) is ECDH:
-            pytest.skip("type mismatch")
-
         msg = randbytes(4096)
         sig = self.cipher.sign(msg, digestmod)
         assert sig is not None
@@ -194,11 +191,27 @@ class _TestECBase(_TestCipherBase):
         assert prv != 0
 
 
-class TestECDH(_TestECBase):
+class TestECDH:
+    # From test_suite_ecdh.function
 
-    @pytest.fixture(autouse=True)
-    def ecp(self):
-        self.cipher = ECDH()
+    @pytest.fixture(autouse=True, params=get_supported_curves())
+    def _setup(self, request):
+        curve = request.param
+        self.srv = ECDHServer(curve)
+        self.cli = ECDHClient(curve)
+
+    def test_exchange(self):
+        params = self.srv.make_params()
+        self.cli.read_params(params)
+
+        public = self.srv.make_public()
+        self.cli.read_public(public)
+
+        srv_sec = self.srv.calc_secret()
+        cli_sec = self.cli.calc_secret()
+        assert srv_sec == cli_sec
+        assert self.srv.shared_secret == srv_sec
+        assert self.cli.shared_secret == cli_sec
 
 
 class TestECDSA(_TestECBase):

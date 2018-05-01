@@ -88,7 +88,11 @@ cdef extern from "mbedtls/ecp.h":
     # mbedtls_ecp_point_read_binary
     # mbedtls_ecp_tls_read_point
     # mbedtls_ecp_tls_write_point
-    # mbedtls_ecp_group_load
+
+    int mbedtls_ecp_group_load(
+        mbedtls_ecp_group *grp,
+        mbedtls_ecp_group_id index)
+
     # mbedtls_ecp_tls_read_group
     # mbedtls_ecp_tls_write_group
     # mbedtls_ecp_mul
@@ -121,7 +125,10 @@ cdef extern from "mbedtls/ecdh.h":
         MBEDTLS_ECDH_THEIRS
 
     ctypedef struct mbedtls_ecdh_context:
-        pass
+        mbedtls_ecp_group grp
+        mbedtls_mpi d  # private key
+        mbedtls_ecp_point Q  # public key
+        mbedtls_mpi z  # shared secret
 
     # mbedtls_ecp_group
     # -----------------
@@ -130,15 +137,31 @@ cdef extern from "mbedtls/ecdh.h":
 
     # mbedtls_ecdh_context
     # --------------------
-    # mbedtls_ecdh_init
-    # mbedtls_ecdh_free
+    void mbedtls_ecdh_init(mbedtls_ecdh_context *ctx)
+    void mbedtls_ecdh_free(mbedtls_ecdh_context *ctx)
 
     # mbedtls_ecdh_get_params
-    # mbedtls_ecdh_make_params
-    # mbedtls_ecdh_make_public
-    # mbedtls_ecdh_read_params
-    # mbedtls_ecdh_read_public
-    # mbedtls_ecdh_calc_secret
+
+    int mbedtls_ecdh_make_params(
+        mbedtls_ecdh_context *ctx,
+        size_t *olen, unsigned char *buf, size_t blen,
+        int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+    int mbedtls_ecdh_make_public(
+        mbedtls_ecdh_context *ctx,
+        size_t *olen, unsigned char *buf, size_t blen,
+        int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+
+    int mbedtls_ecdh_read_params(
+        mbedtls_ecdh_context *ctx,
+        const unsigned char **buf, const unsigned char *end)
+    int mbedtls_ecdh_read_public(
+        mbedtls_ecdh_context *ctx,
+        const unsigned char *buf, size_t blen)
+
+    int mbedtls_ecdh_calc_secret(
+        mbedtls_ecdh_context *ctx,
+        size_t *olen, unsigned char *buf, size_t blen,
+        int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
 
 
 cdef extern from "mbedtls/ecdsa.h":
@@ -308,3 +331,7 @@ cdef class ECGroup:
 
 cdef class ECKeyPair:
     cdef mbedtls_ecp_keypair _ctx
+
+
+cdef class ECDHBase:
+    cdef mbedtls_ecdh_context _ctx

@@ -20,7 +20,7 @@ import mbedtls.hash as _hash
 
 __all__ = ("CIPHER_NAME", "check_pair",
            "get_supported_ciphers", "get_supported_curves",
-           "RSA", "EC", "ECDH", "ECDSA")
+           "RSA", "EC", "ECDHServer", "ECDHClient", "ECDSA")
 
 
 CIPHER_NAME = (
@@ -494,9 +494,97 @@ cdef class EC(ECBase):
         super().__init__(b"EC")
 
 
-cdef class ECDH(ECBase):
-    def __init__(self):
-        super().__init__(b"EC_DH")
+cdef class ECDHBase:
+    def __init__(self, curve):
+        super().__init__()
+        check_error(mbedtls_ecp_group_load(
+            &self._ctx.grp, curve_name_to_grp_id(curve)))
+
+    def __cinit__(self):
+        """Initialize the context."""
+        _pk.mbedtls_ecdh_init(&self._ctx)
+
+    def __dealloc__(self):
+        """Free and clear the context."""
+        _pk.mbedtls_ecdh_free(&self._ctx)
+
+    property shared_secret:
+        """Return the shared secret."""
+        def __get__(self):
+            return int(_mpi.from_mpi(&self._ctx.z))
+
+
+cdef class ECDHServer(ECDHBase):
+    def make_params(self):
+        cdef unsigned char* output = <unsigned char*>malloc(
+            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
+        cdef size_t olen = 0
+        if not output:
+            raise MemoryError()
+        try:
+            check_error(mbedtls_ecdh_make_params(
+                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
+                &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+            assert olen != 0
+            return bytes(output[:olen])
+        finally:
+            free(output)
+
+    def make_public(self):
+        cdef unsigned char* output = <unsigned char*>malloc(
+            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
+        cdef size_t olen = 0
+        if not output:
+            raise MemoryError()
+        try:
+            check_error(mbedtls_ecdh_make_public(
+                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
+                &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+            assert olen != 0
+            return bytes(output[:olen])
+        finally:
+            free(output)
+
+    def calc_secret(self):
+        cdef unsigned char* output = <unsigned char*>malloc(
+            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
+        cdef size_t olen = 0
+        if not output:
+            raise MemoryError()
+        try:
+            check_error(mbedtls_ecdh_calc_secret(
+                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
+                &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+            assert olen != 0
+            return bytes(output[:olen])
+        finally:
+            free(output)
+
+
+cdef class ECDHClient(ECDHBase):
+    def read_params(self, const unsigned char[:] params):
+        cdef const unsigned char* first = &params[0]
+        check_error(mbedtls_ecdh_read_params(
+            &self._ctx, &first, &params[-1] + 1))
+
+    def read_public(self, const unsigned char[:] buffer):
+        check_error(mbedtls_ecdh_read_public(
+            &self._ctx, &buffer[0], buffer.size))
+
+    def calc_secret(self):
+        cdef unsigned char* output = <unsigned char*>malloc(
+            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
+        cdef size_t olen = 0
+        if not output:
+            raise MemoryError()
+        try:
+            check_error(mbedtls_ecdh_calc_secret(
+                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
+                NULL, NULL))
+            assert olen != 0
+            return bytes(output[:olen])
+        finally:
+            free(output)
 
 
 cdef class ECDSA(ECBase):
