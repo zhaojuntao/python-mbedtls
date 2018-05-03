@@ -128,6 +128,7 @@ cdef extern from "mbedtls/ecdh.h":
         mbedtls_ecp_group grp
         mbedtls_mpi d  # private key
         mbedtls_ecp_point Q  # public key
+        mbedtls_ecp_point Qp  # peer's public key
         mbedtls_mpi z  # shared secret
 
     # mbedtls_ecp_group
@@ -140,7 +141,10 @@ cdef extern from "mbedtls/ecdh.h":
     void mbedtls_ecdh_init(mbedtls_ecdh_context *ctx)
     void mbedtls_ecdh_free(mbedtls_ecdh_context *ctx)
 
-    # mbedtls_ecdh_get_params
+    int mbedtls_ecdh_get_params(
+        mbedtls_ecdh_context *ctx,
+        const mbedtls_ecp_keypair *key,
+        mbedtls_ecdh_side side)
 
     int mbedtls_ecdh_make_params(
         mbedtls_ecdh_context *ctx,
@@ -181,11 +185,14 @@ cdef extern from "mbedtls/ecdsa.h":
     void mbedtls_ecdsa_init(mbedtls_ecdsa_context *ctx)
     void mbedtls_ecdsa_free(mbedtls_ecdsa_context *ctx)
 
+    int mbedtls_ecdsa_from_keypair(
+        mbedtls_ecdsa_context *ctx,
+        const mbedtls_ecp_keypair *key)
+
     # mbedtls_ecdsa_write_signature
     # mbedtls_ecdsa_write_signature_det
     # mbedtls_ecdsa_read_signature
     # mbedtls_ecdsa_genkey
-    # mbedtls_ecdsa_from_keypair
 
 
 cdef extern from "mbedtls/rsa.h":
@@ -314,14 +321,14 @@ cdef extern from "mbedtls/pk.h":
 
 cdef class CipherBase:
     cdef mbedtls_pk_context _ctx
-
-    cpdef bint has_private(self)
-    cpdef bint has_public(self)
-
     cdef bytes _write(
         self,
         int (*fun)(mbedtls_pk_context*, unsigned char*, size_t),
         size_t)
+
+
+cdef class ECC(CipherBase):
+    cdef curve
 
 
 cdef class ECPoint:
@@ -338,6 +345,7 @@ cdef class ECKeyPair:
 
 cdef class ECDHBase:
     cdef mbedtls_ecdh_context _ctx
+    cdef curve
 
 
 cdef class ECDSA:

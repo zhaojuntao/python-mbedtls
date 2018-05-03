@@ -154,11 +154,11 @@ cdef class CipherBase:
         def __get__(self):
             return _pk.mbedtls_pk_get_len(&self._ctx)
 
-    cpdef bint has_private(self):
+    def has_private(self):
         """Return `True` if the key contains a valid private half."""
         raise NotImplementedError
 
-    cpdef bint has_public(self):
+    def has_public(self):
         """Return `True` if the key contains a valid public half."""
         raise NotImplementedError
 
@@ -360,11 +360,11 @@ cdef class RSA(CipherBase):
     def __init__(self):
         super().__init__(b"RSA")
 
-    cpdef bint has_private(self):
+    def has_private(self):
         """Return `True` if the key contains a valid private half."""
         return _pk.mbedtls_rsa_check_privkey(_pk.mbedtls_pk_rsa(self._ctx)) == 0
 
-    cpdef bint has_public(self):
+    def has_public(self):
         """Return `True` if the key contains a valid public half."""
         return _pk.mbedtls_rsa_check_pubkey(_pk.mbedtls_pk_rsa(self._ctx)) == 0
 
@@ -451,27 +451,48 @@ cdef class ECC(CipherBase):
 
     """Elliptic-curve cryptosystems."""
 
-    def __init__(self):
+    def __init__(self, curve=None):
         super().__init__(b"EC")
+        if curve is None:
+            curve = get_supported_curves()[0]
+        self.curve = curve
 
-    cpdef bint has_private(self):
+    def has_private(self):
         """Return `True` if the key contains a valid private half."""
-        cdef const mbedtls_mpi* d = &_pk.mbedtls_pk_ec(self._ctx).d
-        return _mpi.mbedtls_mpi_cmp_mpi(d, &_mpi.MPI(0)._ctx) != 0
+        cdef const mbedtls_ecp_keypair* ecp = _pk.mbedtls_pk_ec(self._ctx)
+        return _mpi.mbedtls_mpi_cmp_mpi(&ecp.d, &_mpi.MPI(0)._ctx) != 0
 
-    cpdef bint has_public(self):
+    def has_public(self):
         """Return `True` if the key contains a valid public half."""
         cdef mbedtls_ecp_keypair* ecp = _pk.mbedtls_pk_ec(self._ctx)
         return not _pk.mbedtls_ecp_is_zero(&ecp.Q)
 
-    def generate(self, curve):
+    def generate(self):
         """Generate an EC keypair."""
-        grp_id = curve_name_to_grp_id(curve)
+        grp_id = curve_name_to_grp_id(self.curve)
         if grp_id is None:
-            raise ValueError(curve)
+            raise ValueError(self.curve)
         check_error(_pk.mbedtls_ecp_gen_key(
             grp_id, _pk.mbedtls_pk_ec(self._ctx),
             &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+
+    def to_ECDSA(self):
+        ecdsa = ECDSA(self.curve)
+        check_error(_pk.mbedtls_ecdsa_from_keypair(
+            &ecdsa._ctx, _pk.mbedtls_pk_ec(self._ctx)))
+        return ecdsa
+
+    def to_ECDH_server(self):
+        ecdh = ECDHServer(self.curve)
+        check_error(_pk.mbedtls_ecdh_get_params(
+            &ecdh._ctx, _pk.mbedtls_pk_ec(self._ctx), MBEDTLS_ECDH_OURS))
+        return ecdh
+
+    def to_ECDH_client(self):
+        ecdh = ECDHClient(self.curve)
+        check_error(_pk.mbedtls_ecdh_get_params(
+            &ecdh._ctx, _pk.mbedtls_pk_ec(self._ctx), MBEDTLS_ECDH_THEIRS))
+        return ecdh
 
     property public_value:
         """Return a copy of the public value."""
@@ -490,10 +511,13 @@ cdef class ECC(CipherBase):
 
 
 cdef class ECDHBase:
-    def __init__(self, curve):
+    def __init__(self, curve=None):
         super().__init__()
+        if curve is None:
+            curve = get_supported_curves()[0]
+        self.curve = curve
         check_error(mbedtls_ecp_group_load(
-            &self._ctx.grp, curve_name_to_grp_id(curve)))
+            &self._ctx.grp, curve_name_to_grp_id(self.curve)))
 
     def __cinit__(self):
         """Initialize the context."""
@@ -503,6 +527,18 @@ cdef class ECDHBase:
         """Free and clear the context."""
         _pk.mbedtls_ecdh_free(&self._ctx)
 
+    def has_private(self):
+        """Return `True` if the key contains a valid private half."""
+        return _mpi.mbedtls_mpi_cmp_mpi(&self._ctx.d, &_mpi.MPI(0)._ctx) != 0
+
+    def has_public(self):
+        """Return `True` if the key contains a valid public half."""
+        return not _pk.mbedtls_ecp_is_zero(&self._ctx.Q)
+
+    def has_peers_public(self):
+        """Return `True` if the peer's key is present."""
+        return not _pk.mbedtls_ecp_is_zero(&self._ctx.Qp)
+
     property shared_secret:
         """Return the shared secret."""
         def __get__(self):
@@ -511,6 +547,7 @@ cdef class ECDHBase:
 
 cdef class ECDHServer(ECDHBase):
     def make_params(self):
+        """Return the domain parameters."""
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         cdef size_t olen = 0
@@ -525,20 +562,9 @@ cdef class ECDHServer(ECDHBase):
         finally:
             free(output)
 
-    def make_public(self):
-        cdef unsigned char* output = <unsigned char*>malloc(
-            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
-        cdef size_t olen = 0
-        if not output:
-            raise MemoryError()
-        try:
-            check_error(mbedtls_ecdh_make_public(
-                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
-                &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
-            assert olen != 0
-            return bytes(output[:olen])
-        finally:
-            free(output)
+    def read_public(self, const unsigned char[:] buffer):
+        check_error(mbedtls_ecdh_read_public(
+            &self._ctx, &buffer[0], buffer.size))
 
     def calc_secret(self):
         cdef unsigned char* output = <unsigned char*>malloc(
@@ -559,12 +585,24 @@ cdef class ECDHServer(ECDHBase):
 cdef class ECDHClient(ECDHBase):
     def read_params(self, const unsigned char[:] params):
         cdef const unsigned char* first = &params[0]
+        cdef const unsigned char* end = &params[-1] + 1
         check_error(mbedtls_ecdh_read_params(
-            &self._ctx, &first, &params[-1] + 1))
+            &self._ctx, &first, end))
 
-    def read_public(self, const unsigned char[:] buffer):
-        check_error(mbedtls_ecdh_read_public(
-            &self._ctx, &buffer[0], buffer.size))
+    def make_public(self):
+        cdef unsigned char* output = <unsigned char*>malloc(
+            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
+        cdef size_t olen = 0
+        if not output:
+            raise MemoryError()
+        try:
+            check_error(mbedtls_ecdh_make_public(
+                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
+                &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+            assert olen != 0
+            return bytes(output[:olen])
+        finally:
+            free(output)
 
     def calc_secret(self):
         cdef unsigned char* output = <unsigned char*>malloc(
