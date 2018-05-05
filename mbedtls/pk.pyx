@@ -1,7 +1,19 @@
-"""Public key (PK) wrapper."""
+"""Public key (PK) library.
+
+The library handles RSA certifivates and ECC (elliptic curve
+cryptography).
+
+The RSA and ECC classes offer compatible APIs.  They may be used
+interchangeably.
+
+ECDHServer and ECDHClient should be used for ephemeral Elliptic Curve
+Diffie-Hellman exchange.
+
+"""
 
 __author__ = "Mathias Laurin"
-__copyright__ = "Copyright 2016, Elaborated Networks GmbH"
+__copyright__ = ("Copyright 2016, Elaborated Networks GmbH, "
+                 "Copyright 2018, Mathias Laurin")
 __license__ = "MIT License"
 
 
@@ -69,6 +81,11 @@ cpdef get_supported_ciphers():
 
 
 def get_supported_curves():
+    """Return the list of supported curves.
+
+    The list is in a human-readable format.
+
+    """
     cdef const mbedtls_ecp_curve_info* info = mbedtls_ecp_curve_list()
     names, idx = [], 0
     while info[idx].name != NULL:
@@ -109,8 +126,7 @@ def _get_md_alg(digestmod):
 
 
 cdef class CipherBase:
-
-    """Wrap and encapsulate the pk library from mbed TLS.
+    """Base class to RSA and ECC ciphers.
 
     Parameters:
         name (bytes): The cipher name known to mbed TLS.
@@ -274,7 +290,7 @@ cdef class CipherBase:
         """Generate a keypair.
 
         Return:
-            The new private key.
+            (bytes): The private key in DER format.
 
         """
         raise NotImplementedError
@@ -295,8 +311,7 @@ cdef class CipherBase:
     def from_buffer(self, key, password=None):
         """Import a key (public or private half).
 
-        The public half is automatically generated upon importing a
-        private key.
+        The public half is generated upon importing a private key.
 
         Arguments:
             key (bytes): The key in PEM or DER format.
@@ -345,7 +360,7 @@ cdef class CipherBase:
         """
         if format == "DER":
             return self._private_to_DER()
-        elif format == "PEM":
+        if format == "PEM":
             return self._private_to_PEM()
         raise ValueError(format)
 
@@ -371,7 +386,7 @@ cdef class CipherBase:
         """
         if format == "DER":
             return self._public_to_DER()
-        elif format == "PEM":
+        if format == "PEM":
             return self._public_to_PEM()
         raise ValueError(format)
 
@@ -407,6 +422,7 @@ cdef class CipherBase:
         return self.export_key("DER"), self.export_public_key("DER")
 
     def to_bytes(self):
+        """Return the private key in DER format."""
         return self.export_key(format="DER")
 
     def __bytes__(self):
@@ -435,14 +451,20 @@ cdef class RSA(CipherBase):
             key_size (unsigned int): size in bits.
             exponent (int): public RSA exponent.
 
+        Return:
+            (bytes): The private key in DER format.
+
         """
         check_error(_pk.mbedtls_rsa_gen_key(
             _pk.mbedtls_pk_rsa(self._ctx), &_random.mbedtls_ctr_drbg_random,
             &__rng._ctx, key_size, exponent))
-        return self.export_key()
+        return self.export_key("DER")
 
 
 cdef class ECPoint:
+
+    """A point on the elliptic curve."""
+
     def __cinit__(self):
         """Initialize the context."""
         _pk.mbedtls_ecp_point_init(&self._ctx)
@@ -510,6 +532,7 @@ cdef class ECPoint:
         return self._tuple().count(value)
 
     def copy(self):
+        """Return a copy of this point."""
         cdef ECPoint other = ECPoint()
         check_error(_pk.mbedtls_ecp_copy(&other._ctx, &self._ctx))
         return other
@@ -542,8 +565,16 @@ cdef class ECKeyPair:
 
 cdef class ECC(CipherBase):
 
-    """Elliptic-curve cryptosystems."""
+    """Elliptic-curve cryptosystems.
 
+    Args:
+        (str): The name of the curve in a human-readable format.
+            Must be one of `get_supported_curves()`.
+
+    See Also:
+        get_supported_curves()
+
+    """
     def __init__(self, curve=None):
         super().__init__(b"EC")
         if curve is None:
@@ -561,14 +592,19 @@ cdef class ECC(CipherBase):
         return not _pk.mbedtls_ecp_is_zero(&ecp.Q)
 
     def generate(self):
-        """Generate an EC keypair."""
+        """Generate an EC keypair.
+
+        Return:
+            (bytes): The private key in DER format.
+
+        """
         grp_id = curve_name_to_grp_id(self.curve)
         if grp_id is None:
             raise ValueError(self.curve)
         check_error(_pk.mbedtls_ecp_gen_key(
             grp_id, _pk.mbedtls_pk_ec(self._ctx),
             &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
-        return self.export_key()
+        return self.export_key("DER")
 
     def _private_to_num(self):
         try:
@@ -576,23 +612,17 @@ cdef class ECC(CipherBase):
         except ValueError:
             return 0
 
-    def _private_to_bin(self):
-        # XXX
-        pass
-
     def export_key(self, format="DER"):
         """Return the private key.
 
         If not key is present, return a falsy value.
 
         Args:
-            format (str): One of "DER", "PEM", "NUM", or "BIN".
+            format (str): One of "DER", "PEM", or "NUM".
 
         """
         if format == "NUM":
             return self._private_to_num()
-        elif format == "BIN":
-            return self._private_to_bin()
         return super().export_key(format)
 
     def _public_to_point(self):
@@ -600,23 +630,17 @@ cdef class ECC(CipherBase):
         _pk.mbedtls_ecp_copy(&point._ctx, &_pk.mbedtls_pk_ec(self._ctx).Q)
         return point
 
-    def _public_to_bin(self):
-        # XXX
-        pass
-
     def export_public_key(self, format="DER"):
         """Return the public key.
         
         If no key is present, return a falsy value.
 
         Args:
-            format (str): One of "DER", "PEM", "POINT", or "BIN".
+            format (str): One of "DER", "PEM", or "POINT".
 
         """
         if format == "POINT":
             return self._public_to_point()
-        elif format == "BIN":
-            return self._public_to_bin()
         return super().export_public_key(format)
 
     def to_ECDSA(self):
@@ -626,12 +650,14 @@ cdef class ECC(CipherBase):
         return ecdsa
 
     def to_ECDH_server(self):
+        """Return an ECDH server with this key."""
         ecdh = ECDHServer(self.curve)
         check_error(_pk.mbedtls_ecdh_get_params(
             &ecdh._ctx, _pk.mbedtls_pk_ec(self._ctx), MBEDTLS_ECDH_OURS))
         return ecdh
 
     def to_ECDH_client(self):
+        """Return an ECDH client with this key."""
         ecdh = ECDHClient(self.curve)
         check_error(_pk.mbedtls_ecdh_get_params(
             &ecdh._ctx, _pk.mbedtls_pk_ec(self._ctx), MBEDTLS_ECDH_THEIRS))
@@ -639,6 +665,18 @@ cdef class ECC(CipherBase):
 
 
 cdef class ECDHBase:
+
+    """Base class to ECDH(E) key exchange: client and server.
+
+    Args:
+        (str): The name of the curve in a human-readable format.
+            Must be one of `get_supported_curves()`.
+
+    See Also:
+        ECDHServer, ECDHClient: The derived class.
+        get_supported_curves()
+
+    """
     def __init__(self, curve=None):
         super().__init__()
         if curve is None:
@@ -667,18 +705,48 @@ cdef class ECDHBase:
         """Return `True` if the peer's key is present."""
         return not _pk.mbedtls_ecp_is_zero(&self._ctx.Qp)
 
-    def export_shared_secret(self, format="NUM"):
-        if format != "NUM":
-            raise ValueError(format)
+    def generate_secret(self):
+        """Generate the shared secret."""
+        cdef _mpi.MPI mpi = _mpi.MPI(0)
+        cdef unsigned char* output = <unsigned char*>malloc(
+            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
+        cdef size_t olen = 0
+        if not output:
+            raise MemoryError()
         try:
-            return long(_mpi.from_mpi(&self._ctx.z))
-        except ValueError:
-            return 0
+            check_error(mbedtls_ecdh_calc_secret(
+                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
+                &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+            assert olen != 0
+            _mpi.mbedtls_mpi_read_binary(&mpi._ctx, &output[0], olen)
+            return long(mpi)
+        finally:
+            free(output)
+
+    property shared_secret:
+        """The shared secret (int).
+
+        The shared secret is 0 if the TLS handshake is not finisherd.
+
+        """
+        def __get__(self):
+            try:
+                return long(_mpi.from_mpi(&self._ctx.z))
+            except ValueError:
+                return 0
 
 
 cdef class ECDHServer(ECDHBase):
-    def generate_domain_parameters(self):
-        """Return the domain parameters."""
+
+    """The server side of the ephemeral ECDH key exchange."""
+
+    def generate(self):
+        """Generate a public key.
+
+        Return:
+            bytes: A TLS ServerKeyExchange payload.
+
+        """
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         cdef size_t olen = 0
@@ -693,36 +761,23 @@ cdef class ECDHServer(ECDHBase):
         finally:
             free(output)
 
-    def import_public_key(self, const unsigned char[:] buffer):
+    def import_CKE(self, const unsigned char[:] buffer):
+        """Read the ClientKeyExchange payload."""
         check_error(mbedtls_ecdh_read_public(
             &self._ctx, &buffer[0], buffer.size))
 
-    def generate_secret(self):
-        cdef _mpi.MPI mpi = _mpi.MPI(0)
-        cdef unsigned char* output = <unsigned char*>malloc(
-            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
-        cdef size_t olen = 0
-        if not output:
-            raise MemoryError()
-        try:
-            check_error(mbedtls_ecdh_calc_secret(
-                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
-                &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
-            assert olen != 0
-            _mpi.mbedtls_mpi_read_binary(&mpi._ctx, &output[0], olen)
-            return long(mpi)
-        finally:
-            free(output)
-
 
 cdef class ECDHClient(ECDHBase):
-    def import_domain_parameters(self, const unsigned char[:] params):
-        cdef const unsigned char* first = &params[0]
-        cdef const unsigned char* end = &params[-1] + 1
-        check_error(mbedtls_ecdh_read_params(
-            &self._ctx, &first, end))
 
-    def generate_public_key(self):
+    """The client side of the ephemeral ECDH key exchange."""
+
+    def generate(self):
+        """Generate a public key.
+
+        Return:
+            bytes: A TLS ClientKeyExchange payload.
+
+        """
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         cdef size_t olen = 0
@@ -733,27 +788,16 @@ cdef class ECDHClient(ECDHBase):
                 &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
                 &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
             assert olen != 0
-            # XXX return point
             return bytes(output[:olen])
         finally:
             free(output)
 
-    def generate_secret(self):
-        cdef _mpi.MPI mpi = _mpi.MPI(0)
-        cdef unsigned char* output = <unsigned char*>malloc(
-            _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
-        cdef size_t olen = 0
-        if not output:
-            raise MemoryError()
-        try:
-            check_error(mbedtls_ecdh_calc_secret(
-                &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
-                NULL, NULL))
-            assert olen != 0
-            _mpi.mbedtls_mpi_read_binary(&mpi._ctx, &output[0], olen)
-            return long(mpi)
-        finally:
-            free(output)
+    def import_SKE(self, const unsigned char[:] buffer):
+        """Read the ServerKeyExchange payload."""
+        cdef const unsigned char* first = &buffer[0]
+        cdef const unsigned char* end = &buffer[-1] + 1
+        check_error(mbedtls_ecdh_read_params(
+            &self._ctx, &first, end))
 
 
 cdef class ECDSA:

@@ -187,10 +187,10 @@ class TestECCtoECDH:
         self.cli = ecp.to_ECDH_client()
 
     def test_exchange(self):
-        public = self.cli.generate_public_key()
+        cke = self.cli.generate()
         assert self.cli._has_public()
 
-        self.srv.import_public_key(public)
+        self.srv.import_CKE(cke)
         assert self.srv._has_peers_public() is True
 
         srv_sec = self.srv.generate_secret()
@@ -209,25 +209,26 @@ class TestECDH:
         for cipher in (self.srv, self.cli):
             assert not cipher._has_private()
             assert not cipher._has_public()
+            assert cipher.shared_secret == 0
 
     def test_exchange(self):
-        params = self.srv.generate_domain_parameters()
+        ske = self.srv.generate()
         assert self.srv._has_public()
 
-        self.cli.import_domain_parameters(params)
+        self.cli.import_SKE(ske)
         assert self.cli._has_peers_public() is True
 
-        public = self.cli.generate_public_key()
+        cke = self.cli.generate()
         assert self.cli._has_public()
 
-        self.srv.import_public_key(public)
+        self.srv.import_CKE(cke)
         assert self.srv._has_peers_public() is True
 
         srv_sec = self.srv.generate_secret()
         cli_sec = self.cli.generate_secret()
         assert srv_sec == cli_sec
-        assert srv_sec == self.srv.export_shared_secret()
-        assert cli_sec == self.cli.export_shared_secret()
+        assert srv_sec == self.srv.shared_secret
+        assert cli_sec == self.cli.shared_secret
 
 
 class _TestECDSA:
