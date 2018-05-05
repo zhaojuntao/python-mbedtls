@@ -1,3 +1,14 @@
+API Changes
+
+* pk/RSA: has_public() and has_private() are now private.
+Test if export_key() and export_public_key() are truthy
+or falsy instead.
+* pk/RSA: to_DER() and to_PEM() are obsolete and will be removed.
+Users should call export_key() and export_public_key() instead.
+* pk/RSA: __str__() now returns the private key in PEM format.
+* pk/RSA: to_bytes() and __bytes__() now return the private key
+in DER format.
+
 Support elliptic curve cryptography
 
 * pk/EC: Elliptic curve cryptography

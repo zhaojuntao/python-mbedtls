@@ -46,14 +46,14 @@ class _TestCipherBase(object):
     def key(self):
         raise NotImplementedError
 
-    def test_cipher_without_key(self):
-        assert self.cipher.has_public() is False
-        assert self.cipher.has_private() is False
+    def test_key_accessors_without_key(self):
+        assert not self.cipher.export_key()
+        assert not self.cipher.export_public_key()
 
     @pytest.mark.usefixtures("key")
     def test_generate(self):
-        assert self.cipher.has_public() is True
-        assert self.cipher.has_private() is True
+        assert self.cipher.export_key()
+        assert self.cipher.export_public_key()
 
     @pytest.mark.usefixtures("key")
     def test_type_accessor(self):
@@ -96,8 +96,8 @@ class _TestCipherBase(object):
 
         prv, pub = self.cipher.to_DER()
         other.from_buffer(pub)
-        assert other.has_private() is False
-        assert other.has_public() is True
+        assert not other.export_key()
+        assert other.export_public_key()
         assert check_pair(self.cipher, other) is False  # Test private half.
         assert check_pair(other, self.cipher) is True  # Test public half.
         assert check_pair(other, other) is False
@@ -109,8 +109,8 @@ class _TestCipherBase(object):
 
         prv, pub = self.cipher.to_DER()
         other.from_buffer(prv)
-        assert other.has_private() is True
-        assert other.has_public() is True
+        assert other.export_key()
+        assert other.export_public_key()
         assert check_pair(self.cipher, other) is True  # Test private half.
         assert check_pair(other, self.cipher) is True  # Test public half.
         assert check_pair(other, other) is True
@@ -157,15 +157,14 @@ class TestECC(_TestCipherBase):
     def key(self):
         self.cipher.generate()
 
-    def test_public_value_accessor_without_key(self):
-        assert self.cipher.public_value == 0
-
-    def test_private_value_accessor_without_key(self):
-        assert self.cipher.private_value == 0
+    def test_cipher_without_key(self):
+        assert self.cipher.export_key("NUM") == 0
+        assert self.cipher.export_public_key("POINT") == 0
+        assert self.cipher.export_public_key("POINT") == (0, 0, 0)
 
     @pytest.mark.usefixtures("key")
     def test_public_value_accessor(self):
-        pub = self.cipher.public_value
+        pub = self.cipher.export_public_key("POINT")
         assert isinstance(pub.x, long)
         assert isinstance(pub.y, long)
         assert isinstance(pub.z, long)
@@ -175,7 +174,7 @@ class TestECC(_TestCipherBase):
 
     @pytest.mark.usefixtures("key")
     def test_private_value_accessor(self):
-        prv = self.cipher.private_value
+        prv = self.cipher.export_key("NUM")
         assert isinstance(prv, long)
         assert prv != 0
 
@@ -191,14 +190,14 @@ class TestECCtoECDH:
         self.cli = ecp.to_ECDH_client()
 
     def test_exchange(self):
-        public = self.cli.make_public()
-        assert self.cli.has_public() is True
+        public = self.cli.generate_public_key()
+        assert self.cli._has_public()
 
-        self.srv.read_public(public)
-        assert self.srv.has_peers_public() is True
+        self.srv.import_public_key(public)
+        assert self.srv._has_peers_public() is True
 
-        srv_sec = self.srv.calc_secret()
-        cli_sec = self.cli.calc_secret()
+        srv_sec = self.srv.generate_secret()
+        cli_sec = self.cli.generate_secret()
         assert srv_sec == cli_sec
 
 
@@ -211,32 +210,32 @@ class TestECDH:
         self.srv = ECDHServer(curve)
         self.cli = ECDHClient(curve)
 
-    def test_cipher_without_key(self):
+    def test_key_accessors_without_key(self):
         for cipher in (self.srv, self.cli):
-            assert cipher.has_private() is False
-            assert cipher.has_public() is False
+            assert not cipher._has_private()
+            assert not cipher._has_public()
 
     def test_exchange(self):
-        params = self.srv.make_params()
-        assert self.srv.has_private() is True
+        params = self.srv.generate_domain_parameters()
+        assert self.srv._has_public()
 
-        self.cli.read_params(params)
-        assert self.cli.has_peers_public() is True
+        self.cli.import_domain_parameters(params)
+        assert self.cli._has_peers_public() is True
 
-        public = self.cli.make_public()
-        assert self.cli.has_public() is True
+        public = self.cli.generate_public_key()
+        assert self.cli._has_public()
 
-        self.srv.read_public(public)
-        assert self.srv.has_peers_public() is True
+        self.srv.import_public_key(public)
+        assert self.srv._has_peers_public() is True
 
-        srv_sec = self.srv.calc_secret()
-        cli_sec = self.cli.calc_secret()
+        srv_sec = self.srv.generate_secret()
+        cli_sec = self.cli.generate_secret()
         assert srv_sec == cli_sec
-        # assert self.srv.shared_secret == srv_sec
-        # assert self.cli.shared_secret == cli_sec
+        assert srv_sec == self.srv.export_shared_secret()
+        assert srv_cli == self.cli.export_shared_secret()
 
 
-class TestECDSA:
+class _TestECDSA:
 
     @pytest.fixture(autouse=True, params=get_supported_curves())
     def ecp(self, request):
@@ -249,11 +248,11 @@ class TestECDSA:
     def key(self):
         self.cipher.generate()
 
-    def test_cipher_without_key(self):
-        assert self.cipher.has_public() is False
-        assert self.cipher.has_private() is False
+    def test_key_accessors_without_key(self):
+        assert not self.cipher.export_key()
+        assert not self.cipher.export_public_key()
 
     @pytest.mark.usefixtures("key")
     def test_generate(self):
-        assert self.cipher.has_public() is True
-        assert self.cipher.has_private() is True
+        assert self.cipher.export_key()
+        assert self.cipher.export_public_key()

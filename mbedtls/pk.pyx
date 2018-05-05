@@ -11,6 +11,7 @@ cimport mbedtls._mpi as _mpi
 cimport mbedtls.pk as _pk
 cimport mbedtls.random as _random
 
+from collections import abc
 from functools import partial
 
 import mbedtls.random as _random
@@ -154,11 +155,11 @@ cdef class CipherBase:
         def __get__(self):
             return _pk.mbedtls_pk_get_len(&self._ctx)
 
-    def has_private(self):
+    def _has_private(self):
         """Return `True` if the key contains a valid private half."""
         raise NotImplementedError
 
-    def has_public(self):
+    def _has_public(self):
         """Return `True` if the key contains a valid public half."""
         raise NotImplementedError
 
@@ -178,7 +179,7 @@ cdef class CipherBase:
         """
         if digestmod is None:
             digestmod = 'sha256'
-        if not self.has_private():
+        if not self._has_private():
             return None
         md_alg = _get_md_alg(digestmod)(message)
         cdef const unsigned char[:] hash_ = md_alg.digest()
@@ -312,24 +313,74 @@ cdef class CipherBase:
         """Import a key (public and private half)."""
         self.from_buffer(key.encode("ascii"), password=password)
 
+    def _private_to_DER(self):
+        if not self._has_private():
+            return b""
+        return self._write(&_pk.mbedtls_pk_write_key_der, PRV_DER_MAX_BYTES)
+
+    def _private_to_PEM(self):
+        if not self._has_private():
+            return ""
+        return self._write(&_pk.mbedtls_pk_write_key_pem,
+                           PRV_DER_MAX_BYTES * 4 // 3 + 100).decode("ascii")
+
+    def export_key(self, format="DER"):
+        """Return the private key.
+
+        If no key is present, return a falsy value.
+
+        Args:
+            format (str): One of "DER" or "PEM".
+
+        """
+        if format == "DER":
+            return self._private_to_DER()
+        elif format == "PEM":
+            return self._private_to_PEM()
+        raise ValueError(format)
+
+    def _public_to_DER(self):
+        if not self._has_public():
+            return b""
+        return self._write(&_pk.mbedtls_pk_write_pubkey_der, PUB_DER_MAX_BYTES)
+
+    def _public_to_PEM(self):
+        if not self._has_public():
+            return ""
+        return self._write(&_pk.mbedtls_pk_write_pubkey_pem,
+                           PUB_DER_MAX_BYTES * 4 // 3 + 100).decode("ascii")
+
+    def export_public_key(self, format="DER"):
+        """Return the public key.
+
+        If no key is present, return a falsy value.
+
+        Args:
+            format (str): One of "DER" or "PEM".
+
+        """
+        if format == "DER":
+            return self._public_to_DER()
+        elif format == "PEM":
+            return self._public_to_PEM()
+        raise ValueError(format)
+
     def to_PEM(self):
         """Return the RSA in PEM format.
 
         Return:
             tuple(str, str): The private key and the public key.
 
+        See Also:
+            export_key()
+            export_public_key()
+
         """
-        prv, pub = "", ""
-        if self.has_private():
-            prv = self._write(&_pk.mbedtls_pk_write_key_pem,
-                              PRV_DER_MAX_BYTES * 4 // 3 + 100).decode("ascii")
-        if self.has_public():
-            pub = self._write(&_pk.mbedtls_pk_write_pubkey_pem,
-                              PUB_DER_MAX_BYTES * 4 // 3 + 100).decode("ascii")
-        return prv, pub
+        # XXX obsolete
+        return self.export_key("PEM"), self.export_public_key("PEM")
 
     def __str__(self):
-        return "\n".join(self.to_PEM())
+        return self.export_key(format="PEM")
 
     def to_DER(self):
         """Return the RSA in DER format.
@@ -337,20 +388,19 @@ cdef class CipherBase:
         Return:
             tuple(bytes, bytes): The private key and the public key.
 
-        """
-        prv, pub = b"", b""
-        if self.has_private():
-            prv = self._write(&_pk.mbedtls_pk_write_key_der,
-                              PRV_DER_MAX_BYTES)
-        if self.has_public():
-            pub = self._write(&_pk.mbedtls_pk_write_pubkey_der,
-                              PUB_DER_MAX_BYTES)
-        return prv, pub
+        See Also:
+            export_key()
+            export_public_key()
 
-    to_bytes = to_DER
+        """
+        # XXX obsolete
+        return self.export_key("DER"), self.export_public_key("DER")
+
+    def to_bytes(self):
+        return self.export_key(format="DER")
 
     def __bytes__(self):
-        return b"\n".join(self.to_DER())
+        return self.to_bytes()
 
 
 cdef class RSA(CipherBase):
@@ -360,11 +410,11 @@ cdef class RSA(CipherBase):
     def __init__(self):
         super().__init__(b"RSA")
 
-    def has_private(self):
+    def _has_private(self):
         """Return `True` if the key contains a valid private half."""
         return _pk.mbedtls_rsa_check_privkey(_pk.mbedtls_pk_rsa(self._ctx)) == 0
 
-    def has_public(self):
+    def _has_public(self):
         """Return `True` if the key contains a valid public half."""
         return _pk.mbedtls_rsa_check_pubkey(_pk.mbedtls_pk_rsa(self._ctx)) == 0
 
@@ -393,28 +443,60 @@ cdef class ECPoint:
     property x:
         """Return the X coordinate."""
         def __get__(self):
-            return int(_mpi.from_mpi(&self._ctx.X))
+            try:
+                return int(_mpi.from_mpi(&self._ctx.X))
+            except ValueError:
+                return 0
 
     property y:
         """Return the Y coordinate."""
         def __get__(self):
-            return int(_mpi.from_mpi(&self._ctx.Y))
+            try:
+                return int(_mpi.from_mpi(&self._ctx.Y))
+            except ValueError:
+                return 0
 
     property z:
         """Return the Z coordinate."""
         def __get__(self):
-            return int(_mpi.from_mpi(&self._ctx.Z))
+            try:
+                return int(_mpi.from_mpi(&self._ctx.Z))
+            except ValueError:
+                return 0
+
+    def _tuple(self):
+        return (self.x, self.y, self.z)
 
     def __str__(self):
-        return "(%i, %i, %i)" % (self.x, self.y, self.z)
+        return self._tuple().__str__()
 
     def __eq__(self, other):
         if other == 0:
             return _pk.mbedtls_ecp_is_zero(&self._ctx) == 1
-        if other.__class__ != self.__class__:
+        elif isinstance(other, abc.Collection):
+            return self._tuple() == other
+        elif other.__class__ != self.__class__:
             return NotImplemented
         c_other = <ECPoint> other
         return _pk.mbedtls_ecp_point_cmp(&self._ctx, &c_other._ctx)
+
+    def __len__(self):
+        return self._tuple().__len__()
+
+    def __getitem__(self, key):
+        return self._tuple().__getitem__(key)
+
+    def __contains__(self, value):
+        return self._tuple().__contains__(value)
+
+    def __iter__(self):
+        return self._tuple().__iter__()
+
+    def index(self, value):
+        return self._tuple().index(value)
+
+    def count(self, value):
+        return self._tuple().count(value)
 
     def copy(self):
         cdef ECPoint other = ECPoint()
@@ -457,12 +539,12 @@ cdef class ECC(CipherBase):
             curve = get_supported_curves()[0]
         self.curve = curve
 
-    def has_private(self):
+    def _has_private(self):
         """Return `True` if the key contains a valid private half."""
         cdef const mbedtls_ecp_keypair* ecp = _pk.mbedtls_pk_ec(self._ctx)
         return _mpi.mbedtls_mpi_cmp_mpi(&ecp.d, &_mpi.MPI(0)._ctx) != 0
 
-    def has_public(self):
+    def _has_public(self):
         """Return `True` if the key contains a valid public half."""
         cdef mbedtls_ecp_keypair* ecp = _pk.mbedtls_pk_ec(self._ctx)
         return not _pk.mbedtls_ecp_is_zero(&ecp.Q)
@@ -475,6 +557,55 @@ cdef class ECC(CipherBase):
         check_error(_pk.mbedtls_ecp_gen_key(
             grp_id, _pk.mbedtls_pk_ec(self._ctx),
             &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+
+    def _private_to_num(self):
+        try:
+            return int(_mpi.from_mpi(&_pk.mbedtls_pk_ec(self._ctx).d))
+        except ValueError:
+            return 0
+
+    def _private_to_bin(self):
+        # XXX
+        pass
+
+    def export_key(self, format="DER"):
+        """Return the private key.
+
+        If not key is present, return a falsy value.
+
+        Args:
+            format (str): One of "DER", "PEM", "NUM", or "BIN".
+
+        """
+        if format == "NUM":
+            return self._private_to_num()
+        elif format == "BIN":
+            return self._private_to_bin()
+        return super().export_key(format)
+
+    def _public_to_point(self):
+        point = ECPoint()
+        _pk.mbedtls_ecp_copy(&point._ctx, &_pk.mbedtls_pk_ec(self._ctx).Q)
+        return point
+
+    def _public_to_bin(self):
+        # XXX
+        pass
+
+    def export_public_key(self, format="DER"):
+        """Return the public key.
+        
+        If no key is present, return a falsy value.
+
+        Args:
+            format (str): One of "DER", "PEM", "POINT", or "BIN".
+
+        """
+        if format == "POINT":
+            return self._public_to_point()
+        elif format == "BIN":
+            return self._public_to_bin()
+        return super().export_public_key(format)
 
     def to_ECDSA(self):
         ecdsa = ECDSA(self.curve)
@@ -494,21 +625,6 @@ cdef class ECC(CipherBase):
             &ecdh._ctx, _pk.mbedtls_pk_ec(self._ctx), MBEDTLS_ECDH_THEIRS))
         return ecdh
 
-    property public_value:
-        """Return a copy of the public value."""
-        def __get__(self):
-            point = ECPoint()
-            _pk.mbedtls_ecp_copy(&point._ctx, &_pk.mbedtls_pk_ec(self._ctx).Q)
-            return point
-
-    property private_value:
-        """Return a copy of the secret value."""
-        def __get__(self):
-            try:
-                return int(_mpi.from_mpi(&_pk.mbedtls_pk_ec(self._ctx).d))
-            except ValueError:
-                return 0
-
 
 cdef class ECDHBase:
     def __init__(self, curve=None):
@@ -527,15 +643,15 @@ cdef class ECDHBase:
         """Free and clear the context."""
         _pk.mbedtls_ecdh_free(&self._ctx)
 
-    def has_private(self):
+    def _has_private(self):
         """Return `True` if the key contains a valid private half."""
         return _mpi.mbedtls_mpi_cmp_mpi(&self._ctx.d, &_mpi.MPI(0)._ctx) != 0
 
-    def has_public(self):
+    def _has_public(self):
         """Return `True` if the key contains a valid public half."""
         return not _pk.mbedtls_ecp_is_zero(&self._ctx.Q)
 
-    def has_peers_public(self):
+    def _has_peers_public(self):
         """Return `True` if the peer's key is present."""
         return not _pk.mbedtls_ecp_is_zero(&self._ctx.Qp)
 
@@ -546,7 +662,7 @@ cdef class ECDHBase:
 
 
 cdef class ECDHServer(ECDHBase):
-    def make_params(self):
+    def generate_domain_parameters(self):
         """Return the domain parameters."""
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
@@ -562,11 +678,11 @@ cdef class ECDHServer(ECDHBase):
         finally:
             free(output)
 
-    def read_public(self, const unsigned char[:] buffer):
+    def import_public_key(self, const unsigned char[:] buffer):
         check_error(mbedtls_ecdh_read_public(
             &self._ctx, &buffer[0], buffer.size))
 
-    def calc_secret(self):
+    def generate_secret(self):
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         cdef size_t olen = 0
@@ -577,19 +693,30 @@ cdef class ECDHServer(ECDHBase):
                 &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
                 &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
             assert olen != 0
+            # XXX export to int with
+            # XXX   _mpi.mbedtls_mpi_read_binary
+            # XXX if possible.
             return bytes(output[:olen])
         finally:
             free(output)
 
+    def export_shared_secret(self, format="NUM"):
+        if format != "NUM":
+            raise ValueError(format)
+        try:
+            return int(_mpi.from_mpi(&self._ctx.z))
+        except ValueError:
+            return 0
+
 
 cdef class ECDHClient(ECDHBase):
-    def read_params(self, const unsigned char[:] params):
+    def import_domain_parameters(self, const unsigned char[:] params):
         cdef const unsigned char* first = &params[0]
         cdef const unsigned char* end = &params[-1] + 1
         check_error(mbedtls_ecdh_read_params(
             &self._ctx, &first, end))
 
-    def make_public(self):
+    def generate_public_key(self):
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         cdef size_t olen = 0
@@ -604,7 +731,7 @@ cdef class ECDHClient(ECDHBase):
         finally:
             free(output)
 
-    def calc_secret(self):
+    def generate_secret(self):
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         cdef size_t olen = 0
@@ -618,6 +745,14 @@ cdef class ECDHClient(ECDHBase):
             return bytes(output[:olen])
         finally:
             free(output)
+
+    def export_shared_secret(self, format="NUM"):
+        if format != "NUM":
+            raise ValueError(format)
+        try:
+            return int(_mpi.from_mpi(&self._ctx.z))
+        except ValueError:
+            return 0
 
 
 cdef class ECDSA:
@@ -637,11 +772,11 @@ cdef class ECDSA:
         """Free and clear the context."""
         _pk.mbedtls_ecdsa_free(&self._ctx)
 
-    def has_private(self):
+    def _has_private(self):
         """Return `True` if the key contains a valid private half."""
         return _mpi.mbedtls_mpi_cmp_mpi(&self._ctx.d, &_mpi.MPI(0)._ctx) != 0
 
-    def has_public(self):
+    def _has_public(self):
         """Return `True` if the key contains a valid public half."""
         return not _pk.mbedtls_ecp_is_zero(&self._ctx.Q)
 
