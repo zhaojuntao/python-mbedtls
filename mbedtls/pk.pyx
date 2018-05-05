@@ -621,6 +621,14 @@ cdef class ECDHClient(ECDHBase):
 
 
 cdef class ECDSA:
+    def __init___(self, curve=None):
+        super().__init__()
+        if curve is None:
+            curve = get_supported_curves()[0]
+        self.curve = curve
+        check_error(mbedtls_ecp_group_load(
+            &self._ctx.grp, curve_name_to_grp_id(self.curve)))
+
     def __cinit__(self):
         """Initialize the context."""
         _pk.mbedtls_ecdsa_init(&self._ctx)
@@ -628,3 +636,24 @@ cdef class ECDSA:
     def __dealloc__(self):
         """Free and clear the context."""
         _pk.mbedtls_ecdsa_free(&self._ctx)
+
+    def has_private(self):
+        """Return `True` if the key contains a valid private half."""
+        return _mpi.mbedtls_mpi_cmp_mpi(&self._ctx.d, &_mpi.MPI(0)._ctx) != 0
+
+    def has_public(self):
+        """Return `True` if the key contains a valid public half."""
+        return not _pk.mbedtls_ecp_is_zero(&self._ctx.Q)
+
+    def generate(self):
+        """Generate an EC keypair."""
+        grp_id = curve_name_to_grp_id(self.curve)
+        if grp_id is None:
+            raise ValueError(self.curve)
+        check_error(_pk.mbedtls_ecdsa_genkey(
+            &self._ctx, grp_id,
+            &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+
+    def write_signature(self, digestmod=None):
+        if digestmod is None:
+            digestmod = 'sha256'

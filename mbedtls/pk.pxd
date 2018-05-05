@@ -170,7 +170,9 @@ cdef extern from "mbedtls/ecdh.h":
 
 cdef extern from "mbedtls/ecdsa.h":
     ctypedef struct mbedtls_ecdsa_context:
-        pass
+        mbedtls_ecp_group grp
+        mbedtls_mpi d
+        mbedtls_ecp_point Q
 
     int MBEDTLS_ECDSA_MAX_LEN
 
@@ -192,7 +194,10 @@ cdef extern from "mbedtls/ecdsa.h":
     # mbedtls_ecdsa_write_signature
     # mbedtls_ecdsa_write_signature_det
     # mbedtls_ecdsa_read_signature
-    # mbedtls_ecdsa_genkey
+
+    int mbedtls_ecdsa_genkey(
+        mbedtls_ecdsa_context *ctx, mbedtls_ecp_group_id gid,
+        int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
 
 
 cdef extern from "mbedtls/rsa.h":
@@ -350,3 +355,4 @@ cdef class ECDHBase:
 
 cdef class ECDSA:
     cdef mbedtls_ecdsa_context _ctx
+    cdef curve

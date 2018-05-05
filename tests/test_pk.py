@@ -202,7 +202,7 @@ class TestECCtoECDH:
         assert srv_sec == cli_sec
 
 
-class TestECDHE:
+class TestECDH:
     # From test_suite_ecdh.function
 
     @pytest.fixture(autouse=True, params=get_supported_curves())
@@ -234,3 +234,26 @@ class TestECDHE:
         assert srv_sec == cli_sec
         # assert self.srv.shared_secret == srv_sec
         # assert self.cli.shared_secret == cli_sec
+
+
+class TestECDSA:
+
+    @pytest.fixture(autouse=True, params=get_supported_curves())
+    def ecp(self, request):
+        curve = request.param
+        self.cipher = ECDSA(curve)
+        yield
+        self.cipher = None
+
+    @pytest.fixture
+    def key(self):
+        self.cipher.generate()
+
+    def test_cipher_without_key(self):
+        assert self.cipher.has_public() is False
+        assert self.cipher.has_private() is False
+
+    @pytest.mark.usefixtures("key")
+    def test_generate(self):
+        assert self.cipher.has_public() is True
+        assert self.cipher.has_private() is True
