@@ -266,7 +266,12 @@ cdef class CipherBase:
             free(output)
 
     def generate(self):
-        """Generate a keypair."""
+        """Generate a keypair.
+
+        Return:
+            The new private key.
+
+        """
         raise NotImplementedError
 
     cdef bytes _write(self, int (*fun)(_pk.mbedtls_pk_context *,
@@ -429,9 +434,11 @@ cdef class RSA(CipherBase):
         check_error(_pk.mbedtls_rsa_gen_key(
             _pk.mbedtls_pk_rsa(self._ctx), &_random.mbedtls_ctr_drbg_random,
             &__rng._ctx, key_size, exponent))
+        return self.export_key()
 
 
 cdef class ECPoint:
+
     def __cinit__(self):
         """Initialize the context."""
         _pk.mbedtls_ecp_point_init(&self._ctx)
@@ -465,7 +472,7 @@ cdef class ECPoint:
                 return 0
 
     def _tuple(self):
-        return (self.x, self.y, self.z)
+        return (self.x, self.y)
 
     def __str__(self):
         return self._tuple().__str__()
@@ -557,6 +564,7 @@ cdef class ECC(CipherBase):
         check_error(_pk.mbedtls_ecp_gen_key(
             grp_id, _pk.mbedtls_pk_ec(self._ctx),
             &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+        return self.export_key()
 
     def _private_to_num(self):
         try:
@@ -683,6 +691,7 @@ cdef class ECDHServer(ECDHBase):
             &self._ctx, &buffer[0], buffer.size))
 
     def generate_secret(self):
+        cdef _mpi.MPI mpi = _mpi.MPI(0)
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         cdef size_t olen = 0
@@ -693,10 +702,8 @@ cdef class ECDHServer(ECDHBase):
                 &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
                 &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
             assert olen != 0
-            # XXX export to int with
-            # XXX   _mpi.mbedtls_mpi_read_binary
-            # XXX if possible.
-            return bytes(output[:olen])
+            _mpi.mbedtls_mpi_read_binary(&mpi._ctx, &output[0], olen)
+            return int(mpi)
         finally:
             free(output)
 
@@ -732,6 +739,7 @@ cdef class ECDHClient(ECDHBase):
             free(output)
 
     def generate_secret(self):
+        cdef _mpi.MPI mpi = _mpi.MPI(0)
         cdef unsigned char* output = <unsigned char*>malloc(
             _pk.MBEDTLS_MPI_MAX_SIZE * sizeof(unsigned char))
         cdef size_t olen = 0
@@ -742,7 +750,8 @@ cdef class ECDHClient(ECDHBase):
                 &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
                 NULL, NULL))
             assert olen != 0
-            return bytes(output[:olen])
+            _mpi.mbedtls_mpi_read_binary(&mpi._ctx, &output[0], olen)
+            return int(mpi)
         finally:
             free(output)
 
@@ -788,6 +797,7 @@ cdef class ECDSA:
         check_error(_pk.mbedtls_ecdsa_genkey(
             &self._ctx, grp_id,
             &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
+        # XXX return the private key
 
     def write_signature(self, digestmod=None):
         if digestmod is None:

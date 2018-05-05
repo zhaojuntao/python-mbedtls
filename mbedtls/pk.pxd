@@ -54,6 +54,7 @@ cdef extern from "mbedtls/ecp.h":
         mbedtls_ecp_point Q
 
     int MBEDTLS_ECP_MAX_BYTES
+    int MBEDTLS_ECP_PF_UNCOMPRESSED
 
     # Free functions
     # --------------
@@ -84,8 +85,16 @@ cdef extern from "mbedtls/ecp.h":
     int mbedtls_ecp_group_copy(
         mbedtls_ecp_group *dst,
         const mbedtls_ecp_group *src)
-    # mbedtls_ecp_point_write_binary
-    # mbedtls_ecp_point_read_binary
+
+    int mbedtls_ecp_point_write_binary(
+        const mbedtls_ecp_group *grp,
+        const mbedtls_ecp_point *P,
+        int format, size_t *olen, unsigned char *buf, size_t buflen)
+    int mbedtls_ecp_point_read_binary(
+        const mbedtls_ecp_group *grp,
+        mbedtls_ecp_point *P,
+        const unsigned char *buf, size_t ilen)
+
     # mbedtls_ecp_tls_read_point
     # mbedtls_ecp_tls_write_point
 

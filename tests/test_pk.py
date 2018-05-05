@@ -50,9 +50,9 @@ class _TestCipherBase(object):
         assert not self.cipher.export_key()
         assert not self.cipher.export_public_key()
 
-    @pytest.mark.usefixtures("key")
-    def test_generate(self):
+    def test_generate(self, key):
         assert self.cipher.export_key()
+        assert self.cipher.export_key() == key
         assert self.cipher.export_public_key()
 
     @pytest.mark.usefixtures("key")
@@ -94,7 +94,7 @@ class _TestCipherBase(object):
     def test_import_public_key(self):
         other = type(self.cipher)()
 
-        prv, pub = self.cipher.to_DER()
+        pub = self.cipher.export_public_key()
         other.from_buffer(pub)
         assert not other.export_key()
         assert other.export_public_key()
@@ -103,12 +103,9 @@ class _TestCipherBase(object):
         assert check_pair(other, other) is False
         assert self.cipher != other
 
-    @pytest.mark.usefixtures("key")
-    def test_import_private_key(self):
+    def test_import_private_key(self, key):
         other = type(self.cipher)()
-
-        prv, pub = self.cipher.to_DER()
-        other.from_buffer(prv)
+        other.from_buffer(key)
         assert other.export_key()
         assert other.export_public_key()
         assert check_pair(self.cipher, other) is True  # Test private half.
@@ -117,10 +114,10 @@ class _TestCipherBase(object):
         assert self.cipher == other
 
     @pytest.mark.usefixtures("key")
-    def test_to_PEM(self):
+    def test_export_to_PEM(self):
         other = type(self.cipher)()
 
-        prv, pub = self.cipher.to_PEM()
+        prv = self.cipher.export_key(format="PEM")
         other.from_PEM(prv)
         assert self.cipher == other
 
@@ -136,7 +133,7 @@ class TestRSA(_TestCipherBase):
     @pytest.fixture
     def key(self):
         key_size = 1024
-        self.cipher.generate(key_size)
+        return self.cipher.generate(key_size)
 
     @pytest.mark.usefixtures("key")
     def test_encrypt_decrypt(self, randbytes):
@@ -155,12 +152,12 @@ class TestECC(_TestCipherBase):
 
     @pytest.fixture
     def key(self):
-        self.cipher.generate()
+        return self.cipher.generate()
 
     def test_cipher_without_key(self):
         assert self.cipher.export_key("NUM") == 0
         assert self.cipher.export_public_key("POINT") == 0
-        assert self.cipher.export_public_key("POINT") == (0, 0, 0)
+        assert self.cipher.export_public_key("POINT") == (0, 0)
 
     @pytest.mark.usefixtures("key")
     def test_public_value_accessor(self):
@@ -202,8 +199,6 @@ class TestECCtoECDH:
 
 
 class TestECDH:
-    # From test_suite_ecdh.function
-
     @pytest.fixture(autouse=True, params=get_supported_curves())
     def _setup(self, request):
         curve = request.param
@@ -232,7 +227,7 @@ class TestECDH:
         cli_sec = self.cli.generate_secret()
         assert srv_sec == cli_sec
         assert srv_sec == self.srv.export_shared_secret()
-        assert srv_cli == self.cli.export_shared_secret()
+        assert cli_sec == self.cli.export_shared_secret()
 
 
 class _TestECDSA:

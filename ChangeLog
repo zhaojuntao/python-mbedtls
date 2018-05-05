@@ -1,5 +1,6 @@
 API Changes
 
+* pk/RSA: generate() returns the private key.
 * pk/RSA: has_public() and has_private() are now private.
 Test if export_key() and export_public_key() are truthy
 or falsy instead.
