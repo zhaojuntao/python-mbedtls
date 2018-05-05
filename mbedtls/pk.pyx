@@ -36,9 +36,8 @@ except NameError:
     long = int
 
 
-__all__ = ("CIPHER_NAME", "check_pair",
-           "get_supported_ciphers", "get_supported_curves",
-           "RSA", "ECC", "ECDHServer", "ECDHClient", "ECDSA")
+__all__ = ("check_pair", "get_supported_ciphers", "get_supported_curves",
+           "RSA", "ECC", "ECDHServer", "ECDHClient")
 
 
 CIPHER_NAME = (
@@ -538,31 +537,6 @@ cdef class ECPoint:
         return other
 
 
-cdef class ECGroup:
-    def __cinit__(self):
-        """Initialize the context."""
-        _pk.mbedtls_ecp_group_init(&self._ctx)
-
-    def __dealloc__(self):
-        """Free and clear the context."""
-        _pk.mbedtls_ecp_group_free(&self._ctx)
-
-    def copy(self):
-        cdef ECGroup other = ECGroup()
-        check_error(_pk.mbedtls_ecp_group_copy(&other._ctx, &self._ctx))
-        return other
-
-
-cdef class ECKeyPair:
-    def __cinit__(self):
-        """Initialize the context."""
-        _pk.mbedtls_ecp_keypair_init(&self._ctx)
-
-    def __dealloc__(self):
-        """Free and clear the context."""
-        _pk.mbedtls_ecp_keypair_free(&self._ctx)
-
-
 cdef class ECC(CipherBase):
 
     """Elliptic-curve cryptosystems.
@@ -642,12 +616,6 @@ cdef class ECC(CipherBase):
         if format == "POINT":
             return self._public_to_point()
         return super().export_public_key(format)
-
-    def to_ECDSA(self):
-        ecdsa = ECDSA(self.curve)
-        check_error(_pk.mbedtls_ecdsa_from_keypair(
-            &ecdsa._ctx, _pk.mbedtls_pk_ec(self._ctx)))
-        return ecdsa
 
     def to_ECDH_server(self):
         """Return an ECDH server with this key."""
@@ -798,43 +766,3 @@ cdef class ECDHClient(ECDHBase):
         cdef const unsigned char* end = &buffer[-1] + 1
         check_error(mbedtls_ecdh_read_params(
             &self._ctx, &first, end))
-
-
-cdef class ECDSA:
-    def __init___(self, curve=None):
-        super().__init__()
-        if curve is None:
-            curve = get_supported_curves()[0]
-        self.curve = curve
-        check_error(mbedtls_ecp_group_load(
-            &self._ctx.grp, curve_name_to_grp_id(self.curve)))
-
-    def __cinit__(self):
-        """Initialize the context."""
-        _pk.mbedtls_ecdsa_init(&self._ctx)
-
-    def __dealloc__(self):
-        """Free and clear the context."""
-        _pk.mbedtls_ecdsa_free(&self._ctx)
-
-    def _has_private(self):
-        """Return `True` if the key contains a valid private half."""
-        return _mpi.mbedtls_mpi_cmp_mpi(&self._ctx.d, &_mpi.MPI(0)._ctx) != 0
-
-    def _has_public(self):
-        """Return `True` if the key contains a valid public half."""
-        return not _pk.mbedtls_ecp_is_zero(&self._ctx.Q)
-
-    def generate(self):
-        """Generate an EC keypair."""
-        grp_id = curve_name_to_grp_id(self.curve)
-        if grp_id is None:
-            raise ValueError(self.curve)
-        check_error(_pk.mbedtls_ecdsa_genkey(
-            &self._ctx, grp_id,
-            &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
-        # XXX return the private key
-
-    def write_signature(self, digestmod=None):
-        if digestmod is None:
-            digestmod = 'sha256'

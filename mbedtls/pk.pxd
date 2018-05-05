@@ -349,19 +349,6 @@ cdef class ECPoint:
     cdef mbedtls_ecp_point _ctx
 
 
-cdef class ECGroup:
-    cdef mbedtls_ecp_group _ctx
-
-
-cdef class ECKeyPair:
-    cdef mbedtls_ecp_keypair _ctx
-
-
 cdef class ECDHBase:
     cdef mbedtls_ecdh_context _ctx
-    cdef curve
-
-
-cdef class ECDSA:
-    cdef mbedtls_ecdsa_context _ctx
     cdef curve

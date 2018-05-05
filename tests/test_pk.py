@@ -19,17 +19,12 @@ except NameError:
     long = int
 
 
-def test_cipher_list():
-    assert len(CIPHER_NAME) == 5
-
-
 def test_supported_curves():
     assert get_supported_curves()
 
 
 def test_get_supported_ciphers():
-    cl = get_supported_ciphers()
-    assert tuple(cl) == CIPHER_NAME
+    assert get_supported_ciphers()
 
 
 @pytest.mark.parametrize(
@@ -229,26 +224,3 @@ class TestECDH:
         assert srv_sec == cli_sec
         assert srv_sec == self.srv.shared_secret
         assert cli_sec == self.cli.shared_secret
-
-
-class _TestECDSA:
-
-    @pytest.fixture(autouse=True, params=get_supported_curves())
-    def ecp(self, request):
-        curve = request.param
-        self.cipher = ECDSA(curve)
-        yield
-        self.cipher = None
-
-    @pytest.fixture
-    def key(self):
-        self.cipher.generate()
-
-    def test_key_accessors_without_key(self):
-        assert not self.cipher.export_key()
-        assert not self.cipher.export_public_key()
-
-    @pytest.mark.usefixtures("key")
-    def test_generate(self):
-        assert self.cipher.export_key()
-        assert self.cipher.export_public_key()
