@@ -18,6 +18,11 @@ import mbedtls.random as _random
 from mbedtls.exceptions import check_error, PkError
 import mbedtls.hash as _hash
 
+try:
+    long
+except NameError:
+    long = int
+
 
 __all__ = ("CIPHER_NAME", "check_pair",
            "get_supported_ciphers", "get_supported_curves",
@@ -438,7 +443,6 @@ cdef class RSA(CipherBase):
 
 
 cdef class ECPoint:
-
     def __cinit__(self):
         """Initialize the context."""
         _pk.mbedtls_ecp_point_init(&self._ctx)
@@ -451,7 +455,7 @@ cdef class ECPoint:
         """Return the X coordinate."""
         def __get__(self):
             try:
-                return int(_mpi.from_mpi(&self._ctx.X))
+                return long(_mpi.from_mpi(&self._ctx.X))
             except ValueError:
                 return 0
 
@@ -459,7 +463,7 @@ cdef class ECPoint:
         """Return the Y coordinate."""
         def __get__(self):
             try:
-                return int(_mpi.from_mpi(&self._ctx.Y))
+                return long(_mpi.from_mpi(&self._ctx.Y))
             except ValueError:
                 return 0
 
@@ -467,7 +471,7 @@ cdef class ECPoint:
         """Return the Z coordinate."""
         def __get__(self):
             try:
-                return int(_mpi.from_mpi(&self._ctx.Z))
+                return long(_mpi.from_mpi(&self._ctx.Z))
             except ValueError:
                 return 0
 
@@ -568,7 +572,7 @@ cdef class ECC(CipherBase):
 
     def _private_to_num(self):
         try:
-            return int(_mpi.from_mpi(&_pk.mbedtls_pk_ec(self._ctx).d))
+            return long(_mpi.from_mpi(&_pk.mbedtls_pk_ec(self._ctx).d))
         except ValueError:
             return 0
 
@@ -663,10 +667,13 @@ cdef class ECDHBase:
         """Return `True` if the peer's key is present."""
         return not _pk.mbedtls_ecp_is_zero(&self._ctx.Qp)
 
-    property shared_secret:
-        """Return the shared secret."""
-        def __get__(self):
-            return int(_mpi.from_mpi(&self._ctx.z))
+    def export_shared_secret(self, format="NUM"):
+        if format != "NUM":
+            raise ValueError(format)
+        try:
+            return long(_mpi.from_mpi(&self._ctx.z))
+        except ValueError:
+            return 0
 
 
 cdef class ECDHServer(ECDHBase):
@@ -703,17 +710,9 @@ cdef class ECDHServer(ECDHBase):
                 &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
             assert olen != 0
             _mpi.mbedtls_mpi_read_binary(&mpi._ctx, &output[0], olen)
-            return int(mpi)
+            return long(mpi)
         finally:
             free(output)
-
-    def export_shared_secret(self, format="NUM"):
-        if format != "NUM":
-            raise ValueError(format)
-        try:
-            return int(_mpi.from_mpi(&self._ctx.z))
-        except ValueError:
-            return 0
 
 
 cdef class ECDHClient(ECDHBase):
@@ -734,6 +733,7 @@ cdef class ECDHClient(ECDHBase):
                 &self._ctx, &olen, &output[0], _pk.MBEDTLS_MPI_MAX_SIZE,
                 &_random.mbedtls_ctr_drbg_random, &__rng._ctx))
             assert olen != 0
+            # XXX return point
             return bytes(output[:olen])
         finally:
             free(output)
@@ -751,17 +751,9 @@ cdef class ECDHClient(ECDHBase):
                 NULL, NULL))
             assert olen != 0
             _mpi.mbedtls_mpi_read_binary(&mpi._ctx, &output[0], olen)
-            return int(mpi)
+            return long(mpi)
         finally:
             free(output)
-
-    def export_shared_secret(self, format="NUM"):
-        if format != "NUM":
-            raise ValueError(format)
-        try:
-            return int(_mpi.from_mpi(&self._ctx.z))
-        except ValueError:
-            return 0
 
 
 cdef class ECDSA:
