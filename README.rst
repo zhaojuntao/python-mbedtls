@@ -194,21 +194,14 @@ The `mbedtls.pk` module provides the ECC cryptosystem.  This includes:
 
 `get_supported_curves()` returns the list of supported curves.
 
-The API of the ECC class is the same as the API of the RSA class::
-
-   >>> from mbedtls import pk
-
-Message encryption and decryption::
-
-   >>> ecc = pk.ECC()
-   >>> prv = ecc.generate()
-   >>> enc = ecc.encrypt(b"secret message")
-   >>> ecc.decrypt(enc)
-   b'secret message'
+The API of the ECC class is the same as the API of the RSA class
+but ciphering (`encrypt()` and `decrypt()` is not supported by
+MBED TLS).
 
 Message signature and verification---elliptic curve digital signature
 algorithm (ECDSA)::
 
+   >>> from mbedtls import pk
    >>> ecdsa = pk.ECC()
    >>> sig = ecdsa.sign(b"Please sign here.")
    >>> ecdsa.verify(b"Please sign here.", sig)
@@ -239,7 +232,7 @@ passes it back to the server::
    >>> cke = cli.generate()
    >>> srv.import_CKE(cke)
 
-Now, client and server can generate their shared secret::
+Now, client and server may generate their shared secret::
 
    >>> secret = srv.generate_secret()
    >>> cli.generate_secret() == secret
