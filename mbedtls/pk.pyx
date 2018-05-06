@@ -23,7 +23,12 @@ cimport mbedtls._mpi as _mpi
 cimport mbedtls.pk as _pk
 cimport mbedtls.random as _random
 
-from collections import abc
+try:
+    from collections.abc import Sequence
+except ImportError:
+    # Python 2.7
+    from collections import Sequence
+
 from functools import partial
 
 import mbedtls.random as _random
@@ -505,7 +510,7 @@ cdef class ECPoint:
     def __eq__(self, other):
         if other == 0:
             return _pk.mbedtls_ecp_is_zero(&self._ctx) == 1
-        elif isinstance(other, abc.Collection):
+        elif isinstance(other, Sequence):
             return self._tuple() == other
         elif other.__class__ != self.__class__:
             return NotImplemented
