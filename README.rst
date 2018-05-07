@@ -203,6 +203,7 @@ algorithm (ECDSA)::
 
    >>> from mbedtls import pk
    >>> ecdsa = pk.ECC()
+   >>> prv = ecdsa.generate()
    >>> sig = ecdsa.sign(b"Please sign here.")
    >>> ecdsa.verify(b"Please sign here.", sig)
    True
