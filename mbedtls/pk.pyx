@@ -29,6 +29,7 @@ except ImportError:
     # Python 2.7
     from collections import Sequence
 
+import enum
 from functools import partial
 
 import mbedtls.random as _random
@@ -42,7 +43,7 @@ except NameError:
 
 
 __all__ = ("check_pair", "get_supported_ciphers", "get_supported_curves",
-           "RSA", "ECC", "ECDHServer", "ECDHClient")
+           "Curve", "RSA", "ECC", "ECDHServer", "ECDHClient")
 
 
 CIPHER_NAME = (
@@ -54,6 +55,24 @@ CIPHER_NAME = (
     # b"RSA_ALT",
     # b"RSASSA_PSS",
 )
+
+
+class Curve(bytes, enum.Enum):
+
+    """Elliptic curves."""
+
+    SECP192R1 = b'secp192r1'
+    SECP224R1 = b'secp224r1'
+    SECP256R1 = b'secp256r1'
+    SECP384R1 = b'secp384r1'
+    SECP521R1 = b'secp521r1'
+    BRAINPOOLP256R1 = b'brainpoolP256r1'
+    BRAINPOOLP384R1 = b'brainpoolP384r1'
+    BRAINPOOLP512R1 = b'brainpoolP512r1'
+    CURVE25519 = b'curve25519'
+    SECP256K1 = b'secp256k1'
+    SECP224K1 = b'secp224k1'
+    SECP192K1 = b'secp192k1'
 
 
 # The following calculations come from mbedtls/library/pkwrite.c.
@@ -85,15 +104,11 @@ cpdef get_supported_ciphers():
 
 
 def get_supported_curves():
-    """Return the list of supported curves.
-
-    The list is in a human-readable format.
-
-    """
+    """Return the list of supported curves in order of preference."""
     cdef const mbedtls_ecp_curve_info* info = mbedtls_ecp_curve_list()
     names, idx = [], 0
     while info[idx].name != NULL:
-        names.append(bytes(info[idx].name))
+        names.append(Curve(bytes(info[idx].name)))
         idx += 1
     return names
 
