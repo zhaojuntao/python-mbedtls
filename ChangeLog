@@ -1,20 +1,22 @@
-API Changes
-
-* pk/RSA: generate() returns the private key.
-* pk/RSA: has_public() and has_private() are now private.
-Test if export_key() and export_public_key() are truthy
-or falsy instead.
-* pk/RSA: to_DER() and to_PEM() are obsolete and will be removed.
-Users should call export_key() and export_public_key() instead.
-* pk/RSA: __str__() now returns the private key in PEM format.
-* pk/RSA: to_bytes() and __bytes__() now return the private key
-in DER format.
+[0.10.0] - 2018-05-07
 
 Support elliptic curve cryptography
 
-* pk/EC: Elliptic curve cryptography
-* pk/ECDH: Elliptic curve Diffie-Hellman
-* pk/ECDSA: Elliptic curve digital signature algorithm
+* pk/ECC: Elliptic curve digital signature algorithm.
+* pk/ECDHServer, pk/ECDHClient: Elliptic curve Diffie-Hellman.
+The two classes together support ECDHE (ephemeral) as well.
+
+API Changes
+
+* pk/RSA: generate() returns the private key.
+* pk/RSA: to_DER() and to_PEM() are obsolete and will be removed.
+Users should call export_key() and export_public_key() instead.
+* pk/RSA: has_public() and has_private() are now private.
+Test if export_key() and export_public_key() are truthy
+or falsy instead.
+* pk/RSA: __str__() now returns the private key in PEM format.
+* pk/RSA: to_bytes() and __bytes__() now return the private key
+in DER format.
 
 Bugfix
 
