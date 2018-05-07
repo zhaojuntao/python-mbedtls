@@ -1,6 +1,6 @@
 """Public key (PK) library.
 
-The library handles RSA certifivates and ECC (elliptic curve
+The library handles RSA certificates and ECC (elliptic curve
 cryptography).
 
 The RSA and ECC classes offer compatible APIs.  They may be used
@@ -419,8 +419,10 @@ cdef class CipherBase:
             export_key()
             export_public_key()
 
+        Warning:
+            This function is obsolete.
+
         """
-        # XXX obsolete
         return self.export_key("PEM"), self.export_public_key("PEM")
 
     def __str__(self):
@@ -436,8 +438,10 @@ cdef class CipherBase:
             export_key()
             export_public_key()
 
+        Warning:
+            This function is obsolete.
+
         """
-        # XXX obsolete
         return self.export_key("DER"), self.export_public_key("DER")
 
     def to_bytes(self):
@@ -525,12 +529,12 @@ cdef class ECPoint:
     def __eq__(self, other):
         if other == 0:
             return _pk.mbedtls_ecp_is_zero(&self._ctx) == 1
+        elif type(other) is type(self):
+            c_other = <ECPoint> other
+            return _pk.mbedtls_ecp_point_cmp(&self._ctx, &c_other._ctx)
         elif isinstance(other, Sequence):
             return self._tuple() == other
-        elif other.__class__ != self.__class__:
-            return NotImplemented
-        c_other = <ECPoint> other
-        return _pk.mbedtls_ecp_point_cmp(&self._ctx, &c_other._ctx)
+        return NotImplemented
 
     def __len__(self):
         return self._tuple().__len__()
@@ -562,8 +566,7 @@ cdef class ECC(CipherBase):
     """Elliptic-curve cryptosystems.
 
     Args:
-        (str): The name of the curve in a human-readable format.
-            Must be one of `get_supported_curves()`.
+        (Curve, optional): A curve returned by `get_supported_curves()`.
 
     See Also:
         get_supported_curves()
@@ -626,7 +629,7 @@ cdef class ECC(CipherBase):
 
     def export_public_key(self, format="DER"):
         """Return the public key.
-        
+
         If no key is present, return a falsy value.
 
         Args:
@@ -638,14 +641,14 @@ cdef class ECC(CipherBase):
         return super().export_public_key(format)
 
     def to_ECDH_server(self):
-        """Return an ECDH server with this key."""
+        """Return an ECDH server initialized with this context."""
         ecdh = ECDHServer(self.curve)
         check_error(_pk.mbedtls_ecdh_get_params(
             &ecdh._ctx, _pk.mbedtls_pk_ec(self._ctx), MBEDTLS_ECDH_OURS))
         return ecdh
 
     def to_ECDH_client(self):
-        """Return an ECDH client with this key."""
+        """Return an ECDH client initialized with this context."""
         ecdh = ECDHClient(self.curve)
         check_error(_pk.mbedtls_ecdh_get_params(
             &ecdh._ctx, _pk.mbedtls_pk_ec(self._ctx), MBEDTLS_ECDH_THEIRS))
@@ -657,8 +660,7 @@ cdef class ECDHBase:
     """Base class to ECDH(E) key exchange: client and server.
 
     Args:
-        (str): The name of the curve in a human-readable format.
-            Must be one of `get_supported_curves()`.
+        (Curve, optional): A curve returned by `get_supported_curves()`.
 
     See Also:
         ECDHServer, ECDHClient: The derived class.
@@ -714,7 +716,7 @@ cdef class ECDHBase:
     property shared_secret:
         """The shared secret (int).
 
-        The shared secret is 0 if the TLS handshake is not finisherd.
+        The shared secret is 0 if the TLS handshake is not finished.
 
         """
         def __get__(self):
@@ -726,8 +728,12 @@ cdef class ECDHBase:
 
 cdef class ECDHServer(ECDHBase):
 
-    """The server side of the ephemeral ECDH key exchange."""
+    """The server side of the ECDH key exchange.
 
+    Args:
+        (Curve, optional): A curve returned by `get_supported_curves()`.
+
+    """
     def generate(self):
         """Generate a public key.
 
@@ -757,8 +763,12 @@ cdef class ECDHServer(ECDHBase):
 
 cdef class ECDHClient(ECDHBase):
 
-    """The client side of the ephemeral ECDH key exchange."""
+    """The client side of the ephemeral ECDH key exchange.
 
+    Args:
+        (Curve, optional): A curve returned by `get_supported_curves()`.
+
+    """
     def generate(self):
         """Generate a public key.
 
