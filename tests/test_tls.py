@@ -3,7 +3,7 @@ import socket
 
 import pytest
 
-from mbedtls.exceptions import _ErrorBase
+from mbedtls.exceptions import MbedTLSError
 from mbedtls.tls import *
 
 
@@ -99,7 +99,7 @@ class TestBaseContext:
     def test_get_configuration(self, context, conf):
         assert context.configuration is conf
 
-    @pytest.mark.xfail(raises=_ErrorBase, strict=True)
+    @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_read_amt(self, context):
         context.read(12)
 
@@ -108,7 +108,7 @@ class TestBaseContext:
         context.read(buf, 12)
         assert buf == bytearray(32)
 
-    @pytest.mark.xfail(raises=_ErrorBase, strict=True)
+    @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_write_buf(self, context):
         buf = bytearray(32)
         context.write(buf)
@@ -122,11 +122,11 @@ class TestBaseContext:
     def test_cipher(self, context):
         assert context.cipher() is None
 
-    @pytest.mark.xfail(raises=_ErrorBase, strict=True)
+    @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_do_handshake(self, context):
         context.do_handshake()
 
-    @pytest.mark.xfail(raises=_ErrorBase, strict=True)
+    @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_renegotiate(self, context):
         context.renegotiate()
 

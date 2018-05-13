@@ -6,6 +6,7 @@ __license__ = "MIT License"
 
 
 cimport mbedtls.x509 as _x509
+cimport mbedtls.pk as _pk
 
 
 cdef:
@@ -17,22 +18,33 @@ cdef:
     enum: MBEDTLS_SSL_VERIFY_OPTIONAL = 1
     enum: MBEDTLS_SSL_VERIFY_REQUIRED = 2
 
+    enum: MBEDTLS_SSL_MAJOR_VERSION_3 = 3
+    enum: MBEDTLS_SSL_MINOR_VERSION_0 = 0
+    enum: MBEDTLS_SSL_MINOR_VERSION_1 = 1
+    enum: MBEDTLS_SSL_MINOR_VERSION_2 = 2
+    enum: MBEDTLS_SSL_MINOR_VERSION_3 = 3
 
-cdef extern from "mbedtls/pk.h":
-    ctypedef enum mbedtls_pk_context: pass
-
-
-cdef extern from "mbedtls/x509.h":
-    ctypedef enum mbedtls_x509_crt: pass
-    ctypedef enum mbedtls_x509_crl: pass
+    enum: MBEDTLS_SSL_IS_CLIENT = 0
+    enum: MBEDTLS_SSL_IS_SERVER = 1
 
 
 cdef extern from "mbedtls/ssl_internal.h":
-    # ctypedef enum mbedtls_ssl_transform: pass
-    # ctypedef enum mbedtls_ssl_handshake_params: pass
+    ctypedef struct mbedtls_ssl_transform:
+        pass
+
+    ctypedef struct mbedtls_ssl_handshake_params:
+        int sig_alg
+        int verify_sig_alg
+        # Diffie-Hellman key exchange:
+        # mbedtls_dhm_context dhm_ctx
+        _pk.mbedtls_ecdh_context ecdh_ctx
+        # EC-J-Pake (not very much used anymore)
+        # mbedtls_ecjpake_context ecjpake_ctx
+        mbedtls_ssl_key_cert *key_cert
+
     ctypedef struct mbedtls_ssl_key_cert:
-        mbedtls_x509_crt *cert
-        mbedtls_pk_context *key
+        _x509.mbedtls_x509_crt *cert
+        _pk.mbedtls_pk_context *key
         mbedtls_ssl_key_cert *next
 
 
@@ -40,7 +52,9 @@ cdef extern from "mbedtls/ssl.h":
     # Defined here
     # ------------
     # ctypedef enum mbedtls_ssl_states: pass
-    ctypedef enum mbedtls_ssl_session: pass
+
+    ctypedef struct mbedtls_ssl_session:
+        pass
 
     ctypedef struct mbedtls_ssl_config:
         # set_validate_certificates
@@ -61,7 +75,8 @@ cdef extern from "mbedtls/ssl.h":
         # set_sni_callback
         # f_sni / p_sni
 
-    ctypedef enum mbedtls_ssl_context: pass
+    ctypedef struct mbedtls_ssl_context:
+        pass
 
     # Callback types
     # --------------
@@ -100,12 +115,12 @@ cdef extern from "mbedtls/ssl.h":
 
     void mbedtls_ssl_conf_ca_chain(
         mbedtls_ssl_config *conf,
-        mbedtls_x509_crt *ca_chain,
-        mbedtls_x509_crl *ca_crl)
+        _x509.mbedtls_x509_crt *ca_chain,
+        _x509.mbedtls_x509_crl *ca_crl)
     int mbedtls_ssl_conf_own_cert(
         mbedtls_ssl_config *conf,
-        mbedtls_x509_crt *own_cert,
-        mbedtls_pk_context *pk_key)
+        _x509.mbedtls_x509_crt *own_cert,
+        _pk.mbedtls_pk_context *pk_key)
 
     # mbedtls_ssl_conf_psk
     # mbedtls_ssl_conf_dh_param
@@ -190,7 +205,7 @@ cdef extern from "mbedtls/ssl.h":
     const char* mbedtls_ssl_get_version(const mbedtls_ssl_context *ssl)
     # mbedtls_ssl_get_record_expansion
     size_t mbedtls_ssl_get_max_frag_len(const mbedtls_ssl_context *ssl)
-    # const mbedtls_x509_crt *mbedtls_ssl_get_peer_cert(
+    # const _x509.mbedtls_x509_crt *mbedtls_ssl_get_peer_cert(
     #     const mbedtls_ssl_context *ctx)
     int mbedtls_ssl_get_session(
         const mbedtls_ssl_context *ssl,

@@ -74,13 +74,12 @@ class NextProtocol(Enum):
 
 class TLSVersion(IntEnum):
     # PEP 543
-    # MBEDTLS_SSL_MINOR_VERSION_X
-    MINIMUM_SUPPORTED = 0
-    SSLv3 = 0
-    TLSv1 = 1
-    TLSv1_1 = 2
-    TLSv1_2 = 3
-    MAXIMUM_SUPPORTED = 3
+    MINIMUM_SUPPORTED = _tls.MBEDTLS_SSL_MINOR_VERSION_0
+    SSLv3 = _tls.MBEDTLS_SSL_MINOR_VERSION_0
+    TLSv1 = _tls.MBEDTLS_SSL_MINOR_VERSION_1
+    TLSv1_1 = _tls.MBEDTLS_SSL_MINOR_VERSION_2
+    TLSv1_2 = _tls.MBEDTLS_SSL_MINOR_VERSION_3
+    MAXIMUM_SUPPORTED = _tls.MBEDTLS_SSL_MINOR_VERSION_3
 
 
 PEM_HEADER = "-----BEGIN CERTIFICATE-----"
@@ -131,9 +130,9 @@ class TrustStore:
         return other in self._db
 
 
-class Purpose(Enum):
-    SERVER_AUTH = 0
-    CLIENT_AUTH = 1
+class Purpose(IntEnum):
+    SERVER_AUTH = _tls.MBEDTLS_SSL_IS_SERVER
+    CLIENT_AUTH = _tls.MBEDTLS_SSL_IS_CLIENT
 
 
 _DEFAULT_VALUE = object()
@@ -203,7 +202,7 @@ cdef class TLSConfiguration:
         cdef TLSConfiguration self = cls()
         check_error(_tls.mbedtls_ssl_config_defaults(
             &self._ctx,
-            1 if purpose is Purpose.SERVER_AUTH else 0,
+            Purpose.SERVER_AUTH,
             transport,
             0))
 
@@ -339,8 +338,10 @@ cdef class TLSConfiguration:
         """  # PEP 543
         if version is None:
             return
-        cdef int major = 3
-        _tls.mbedtls_ssl_conf_min_version(&self._ctx, major, int(version))
+        _tls.mbedtls_ssl_conf_min_version(
+            &self._ctx,
+            _tls.MBEDTLS_SSL_MAJOR_VERSION_3,
+            int(version))
 
     @property
     def lowest_supported_version(self):
@@ -355,8 +356,10 @@ cdef class TLSConfiguration:
         """  # PEP 543
         if version is None:
             return
-        cdef int major = 3
-        _tls.mbedtls_ssl_conf_max_version(&self._ctx, major, int(version))
+        _tls.mbedtls_ssl_conf_max_version(
+            &self._ctx,
+            _tls.MBEDTLS_SSL_MAJOR_VERSION_3,
+            int(version))
 
     @property
     def highest_supported_version(self):
