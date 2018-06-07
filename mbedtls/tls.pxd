@@ -76,7 +76,7 @@ cdef extern from "mbedtls/ssl.h":
         # f_sni / p_sni
 
     ctypedef struct mbedtls_ssl_context:
-        pass
+        const mbedtls_ssl_config *conf
 
     # Callback types
     # --------------

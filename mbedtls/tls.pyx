@@ -602,7 +602,7 @@ cdef class ClientContext(_tls._BaseContext):
     def wrap_buffers(self, server_hostname=None):
         """Create an in-memory stream for TLS."""
         # PEP 543
-        return TLSWrapped(self)
+        return TLSWrappedBuffer(self)
 
     def set_hostname(self, hostname):
         """Set the hostname to check against the received server."""
