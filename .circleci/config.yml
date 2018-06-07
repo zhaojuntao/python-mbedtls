@@ -7,7 +7,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/python:2.7.14-jessie
+      - image: circleci/python:2.7.14-stretch
     working_directory: ~/python-mbedtls
     steps:
       - checkout
