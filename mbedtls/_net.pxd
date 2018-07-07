@@ -38,10 +38,3 @@ cdef extern from "mbedtls/net_sockets.h":
         void *ctx,
         unsigned char *buf, size_t len,
         int timeout)
-
-
-cdef class TLSWrappedSocket:
-    cdef _socket
-    cdef _buffer
-    cdef mbedtls_net_context _ctx
-    cdef int _proto

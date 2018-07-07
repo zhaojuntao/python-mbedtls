@@ -5,8 +5,9 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-cimport mbedtls.x509 as _x509
+cimport mbedtls._net as _net
 cimport mbedtls.pk as _pk
+cimport mbedtls.x509 as _x509
 
 
 cdef:
@@ -80,11 +81,9 @@ cdef extern from "mbedtls/ssl.h":
 
     # Callback types
     # --------------
-    # mbedtls_ssl_send_t
-    # mbedtls_ssl_recv_t
-
-    # cdef typedef mbedtls_ssl_recv_timeout_t:
-    #     pass
+    ctypedef mbedtls_ssl_send_t
+    ctypedef mbedtls_ssl_recv_t
+    ctypedef mbedtls_ssl_recv_timeout_t
 
     # mbedtls_ssl_set_timer_t
     # mbedtls_ssl_get_timer_t
@@ -272,3 +271,7 @@ cdef class _BaseContext:
     cpdef _reset(self)
     cpdef _read(self, size_t mt)
     cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt)
+
+
+cdef class TLSWrappedSocket:
+    cdef _net.mbedtls_net_context _ctx

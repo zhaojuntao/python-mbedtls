@@ -700,17 +700,20 @@ class TLSWrappedBuffer(_pep543.TLSWrappedBuffer):
         ...
 
 
-cdef class TLSWrappedSocket(_pep543.TLSWrappedSocket):
+cdef class TLSWrappedSocket:
+    # _pep543.TLSWrappedSocket
     def __init__(self, socket, buffer):
         super().__init__()
         self._socket = socket
         self._buffer = buffer
         self._proto = _net.MBEDTLS_NET_PROTO_TCP
-        self._ctx.fd = socket.fileno
-
+        self._ctx.fd = socket.fileno()
         # _tls.mbedtls_ssl_set_bio(
         #     &self._buffer._context._ctx,
-        #     &self._socket.fileno,
+        #     &self._ctx.fd,
+        #     &_net.mbedtls_net_send,
+        #     &_net.mbedtls_net_recv,
+        #     NULL)
 
     def __cinit__(self):
         _net.mbedtls_net_init(&self._ctx)
@@ -726,7 +729,7 @@ cdef class TLSWrappedSocket(_pep543.TLSWrappedSocket):
 
     def bind(self, address):
         host, port = address
-        check_error(mbedtls_net_bind(
+        check_error(_net.mbedtls_net_bind(
             &self._ctx, host.encode("ascii"), str(port).encode("ascii"),
             self._proto))
 
@@ -736,7 +739,7 @@ cdef class TLSWrappedSocket(_pep543.TLSWrappedSocket):
 
     def connect(self, address):
         host, port = address
-        check_error(mbedtls_net_connect(
+        check_error(_net.mbedtls_net_connect(
             &self._ctx, host.encode("ascii"), str(port).encode("ascii"),
             self._proto))
 
@@ -770,13 +773,13 @@ cdef class TLSWrappedSocket(_pep543.TLSWrappedSocket):
             raise MemoryError()
         try:
             if self.gettimeout():
-                sz = check_error(mbedtls_net_recv_timeout(
+                sz = check_error(_net.mbedtls_net_recv_timeout(
                     &self._ctx,
                     &buffer[0],
                     bufsize,
                     int(self._timeout)))
             else:
-                sz = check_error(mbedtls_net_recv(
+                sz = check_error(_net.mbedtls_net_recv(
                     &self._ctx,
                     &buffer[0],
                     bufsize))
@@ -796,7 +799,7 @@ cdef class TLSWrappedSocket(_pep543.TLSWrappedSocket):
     def send(self, const unsigned char[:] message, flags=0):
         if flags:
             raise NotImplementedError("flags not supported")
-        sz = check_error(mbedtls_net_send(
+        sz = check_error(_net.mbedtls_net_send(
             &self._ctx,
             &message[0],
             message.size))
