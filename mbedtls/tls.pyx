@@ -8,6 +8,7 @@ __license__ = "MIT License"
 from libc.stdlib cimport malloc, free
 
 cimport mbedtls.pk as _pk
+cimport mbedtls._net as _net
 cimport mbedtls.random as _random
 cimport mbedtls.tls as _tls
 cimport mbedtls.x509 as _x509
@@ -699,34 +700,52 @@ class TLSWrappedBuffer(_pep543.TLSWrappedBuffer):
         ...
 
 
-class TLSWrappedSocket(_pep543.TLSWrappedSocket):
+cdef class TLSWrappedSocket(_pep543.TLSWrappedSocket):
     def __init__(self, socket, buffer):
         super().__init__()
         self._socket = socket
         self._buffer = buffer
+        self._proto = _net.MBEDTLS_NET_PROTO_TCP
+        self._ctx.fd = socket.fileno
+
         # _tls.mbedtls_ssl_set_bio(
         #     &self._buffer._context._ctx,
         #     &self._socket.fileno,
 
+    def __cinit__(self):
+        _net.mbedtls_net_init(&self._ctx)
+
+    def __dealloc__(self):
+        _net.mbedtls_net_free(&self._ctx)
+
     # PEP 543 requires the full socket API.
 
     def accept(self):
-        return self._socket.accept()
+        # mbedtls_net_accept
+        ...
 
     def bind(self, address):
-        self._socket.bind(address)
+        host, port = address
+        check_error(mbedtls_net_bind(
+            &self._ctx, host.encode("ascii"), str(port).encode("ascii"),
+            self._proto))
 
     def close(self):
-        self._socket.close()
+        # self._socket.close()
+        ...
 
     def connect(self, address):
-        self._socket.connect(address)
+        host, port = address
+        check_error(mbedtls_net_connect(
+            &self._ctx, host.encode("ascii"), str(port).encode("ascii"),
+            self._proto))
 
     def connect_ex(self, address):
-        self._socket.connect_ex(address)
+        # self._socket.connect_ex(address)
+        ...
 
     def fileno(self):
-        return self._socket.fileno()
+        return self._ctx.fd
 
     def getpeername(self):
         return self._socket.getpeername()
@@ -742,8 +761,28 @@ class TLSWrappedSocket(_pep543.TLSWrappedSocket):
 
     # makefile
 
-    def recv(self, bufsize, flags=None):
-        ...
+    def recv(self, size_t bufsize, flags=0):
+        if flags:
+            raise NotImplementedError("flags not supported")
+        cdef unsigned char* buffer = <unsigned char *>malloc(
+            bufsize * sizeof(unsigned char))
+        if not buffer:
+            raise MemoryError()
+        try:
+            if self.gettimeout():
+                sz = check_error(mbedtls_net_recv_timeout(
+                    &self._ctx,
+                    &buffer[0],
+                    bufsize,
+                    int(self._timeout)))
+            else:
+                sz = check_error(mbedtls_net_recv(
+                    &self._ctx,
+                    &buffer[0],
+                    bufsize))
+            return bytes(buffer[:sz])
+        finally:
+            free(buffer)
 
     def recvfrom(self, bufsize, flags=None):
         ...
@@ -754,8 +793,13 @@ class TLSWrappedSocket(_pep543.TLSWrappedSocket):
     def recv_into(self, buffer, nbytes=None, flags=None):
         ...
 
-    def send(self, string, flags=None):
-        ...
+    def send(self, const unsigned char[:] message, flags=0):
+        if flags:
+            raise NotImplementedError("flags not supported")
+        sz = check_error(mbedtls_net_send(
+            &self._ctx,
+            &message[0],
+            message.size))
 
     def sendall(self, string, flags=None):
         ...
@@ -767,7 +811,13 @@ class TLSWrappedSocket(_pep543.TLSWrappedSocket):
         ...
 
     def setblocking(self, flag):
-        self._socket.setblocking(flag)
+        if not isinstance(flag, int):
+            raise TypeError("an integer is required (got type %s)"
+                            % type(flag))
+        if flag:
+            check_error(_net.mbedtls_net_set_block(&self._ctx))
+        else:
+            check_error(_net.mbedtls_net_set_nonblock(&self._ctx))
 
     def settimeout(self, value):
         self._socket.settimeout(value)
@@ -779,6 +829,7 @@ class TLSWrappedSocket(_pep543.TLSWrappedSocket):
         self._socket.setsockopt(level, optname, value)
 
     def shutdown(self, how):
+        # XXX
         self._socket.shutdown(how)
 
     # PEP 543 adds the following methods.

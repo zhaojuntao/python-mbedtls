@@ -12,7 +12,7 @@ cdef:
 
 cdef extern from "mbedtls/net_sockets.h":
     ctypedef struct mbedtls_net_context:
-        pass
+        int fd
 
     void mbedtls_net_init(mbedtls_net_context *ctx)
     void mbedtls_net_free(mbedtls_net_context *ctx)
@@ -40,5 +40,8 @@ cdef extern from "mbedtls/net_sockets.h":
         int timeout)
 
 
-cdef class Socket:
+cdef class TLSWrappedSocket:
+    cdef _socket
+    cdef _buffer
     cdef mbedtls_net_context _ctx
+    cdef int _proto
