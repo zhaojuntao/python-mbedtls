@@ -182,17 +182,6 @@ class TestTLSCommunication:
         # XXX Disable certificate validation.
         return conf.update(validate_certificates=False)
 
-    @pytest.fixture(scope="class")
-    def srv_socket(self, srv_conf, host, port):
-        ctx = ServerContext(srv_conf)
-        sock = ctx.wrap_socket(
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((host, port))
-        sock.listen(5)
-        yield sock
-        sock.close()
-
     @pytest.fixture
     def client(self, cli_conf, host, port):
         ctx = ClientContext(cli_conf)
@@ -206,8 +195,13 @@ class TestTLSCommunication:
         sock.close()
 
     @pytest.fixture(scope="class")
-    def server(self, srv_socket, host, port):
-        parent_conn, child_conn = mp.Pipe()
+    def server(self, srv_conf, host, port):
+        ctx = ServerContext(srv_conf)
+        sock = ctx.wrap_socket(
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, port))
+        sock.listen(5)
 
         def run(pipe):
             while True:
@@ -218,14 +212,16 @@ class TestTLSCommunication:
                 if data == b"bye":
                     break
 
+        parent_conn, child_conn = mp.Pipe()
         runner = mp.Process(target=run, args=(child_conn,))
         runner.start()
         yield parent_conn
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.connect((host, port))
-            sock.sendall(b"bye")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as cli:
+            cli.connect((host, port))
+            cli.sendall(b"bye")
         runner.join(0.1)
+        sock.close()
 
     def test_client_server_not_encrypted(self, client, server):
         sock = client.unwrap()

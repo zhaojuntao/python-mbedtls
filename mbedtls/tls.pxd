@@ -1,4 +1,4 @@
-"""Declarations from `mbedtls/ssl.h."""
+"""Declarations from `mbedtls/ssl.h`."""
 
 __author__ = "Mathias Laurin"
 __copyright__ = "Copyright 2018, Mathias Laurin"
@@ -82,7 +82,10 @@ cdef extern from "mbedtls/ssl.h":
     # --------------
     # mbedtls_ssl_send_t
     # mbedtls_ssl_recv_t
-    # mbedtls_ssl_recv_timeout_t
+
+    # cdef typedef mbedtls_ssl_recv_timeout_t:
+    #     pass
+
     # mbedtls_ssl_set_timer_t
     # mbedtls_ssl_get_timer_t
     # mbedtls_ssl_cookie_write_t
@@ -190,12 +193,12 @@ cdef extern from "mbedtls/ssl.h":
         mbedtls_ssl_context *ctx,
         const mbedtls_ssl_config *conf)
     int mbedtls_ssl_session_reset(mbedtls_ssl_context *ctx)
-    void mbedtls_ssl_set_bio(
-        mbedtls_ssl_context *ssl,
-        void *p_bio,
-        mbedtls_ssl_send_t *f_send,
-        mbedtls_ssl_recv_t *f_recv,
-        mbedtls_ssl_recv_timeout_t *f_recv_timeout)
+    # void mbedtls_ssl_set_bio(
+        # mbedtls_ssl_context *ssl,
+        # void *p_bio,
+        # mbedtls_ssl_send_t *f_send,
+        # mbedtls_ssl_recv_t *f_recv,
+        # mbedtls_ssl_recv_timeout_t *f_recv_timeout)
 
     # mbedtls_ssl_set_timer_cb
     # mbedtls_ssl_set_client_transport_id

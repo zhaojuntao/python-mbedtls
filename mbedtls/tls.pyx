@@ -5,7 +5,7 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-from libc.stdlib cimport malloc, realloc, free
+from libc.stdlib cimport malloc, free
 
 cimport mbedtls.pk as _pk
 cimport mbedtls.random as _random
@@ -704,9 +704,9 @@ class TLSWrappedSocket(_pep543.TLSWrappedSocket):
         super().__init__()
         self._socket = socket
         self._buffer = buffer
-        _tls.mbedtls_ssl_set_bio(
-            &self._buffer._context._ctx,
-            &self._socket.fileno,
+        # _tls.mbedtls_ssl_set_bio(
+        #     &self._buffer._context._ctx,
+        #     &self._socket.fileno,
 
     # PEP 543 requires the full socket API.
 
