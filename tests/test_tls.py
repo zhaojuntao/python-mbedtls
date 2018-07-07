@@ -122,7 +122,7 @@ class TestBaseContext:
     def test_cipher(self, context):
         assert context.cipher() is None
 
-    @pytest.mark.xfail(raises=MbedTLSError, strict=True)
+    # @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_do_handshake(self, context):
         context.do_handshake()
 
@@ -169,41 +169,49 @@ class TestTLSCommunication:
         return 50007
 
     @pytest.fixture(scope="class")
-    def tcp_srv_socket(self, host, port):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def srv_conf(self):
+        conf = TLSConfiguration._create_default_context(
+            purpose=Purpose.SERVER_AUTH)
+        # XXX Disable certificate validation.
+        return conf.update(validate_certificates=False)
+
+    @pytest.fixture
+    def cli_conf(self):
+        conf = TLSConfiguration._create_default_context(
+            purpose=Purpose.CLIENT_AUTH)
+        # XXX Disable certificate validation.
+        return conf.update(validate_certificates=False)
+
+    @pytest.fixture(scope="class")
+    def srv_socket(self, srv_conf, host, port):
+        ctx = ServerContext(srv_conf)
+        sock = ctx.wrap_socket(
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM))
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, port))
         sock.listen(5)
         yield sock
         sock.close()
 
-    @pytest.fixture(scope="class")
-    def tls_srv_conf(self):
-        return TLSConfiguration._create_default_context(
-            purpose=Purpose.SERVER_AUTH)
-
-    @pytest.fixture(scope="class")
-    def tls_srv_socket(self, tls_srv_conf, tcp_srv_socket):
-        ctx = ServerContext(tls_srv_conf)
-        sock = ctx.wrap_socket(tcp_srv_socket)
-        return sock
-
     @pytest.fixture
-    def tls_cli_conf(self):
-        return TLSConfiguration._create_default_context(
-            purpose=Purpose.CLIENT_AUTH)
-
-    @pytest.fixture
-    def tls_cli_context(self, tls_cli_conf):
-        return ClientContext(tls_cli_conf)
+    def client(self, cli_conf, host, port):
+        ctx = ClientContext(cli_conf)
+        # XXX Also test hostname verfication!
+        sock = ctx.wrap_socket(
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM),
+            server_hostname=None)
+        sock.settimeout(1.0)
+        sock.connect((host, port))
+        yield sock
+        sock.close()
 
     @pytest.fixture(scope="class")
-    def tcp_server(self, tcp_srv_socket, host, port):
+    def server(self, srv_socket, host, port):
         parent_conn, child_conn = mp.Pipe()
 
         def run(pipe):
             while True:
-                conn, addr = tcp_srv_socket.accept()
+                conn, addr = srv_socket.accept()
                 data = conn.recv(1024)
                 pipe.send(data)
                 conn.close()
@@ -219,14 +227,10 @@ class TestTLSCommunication:
             sock.sendall(b"bye")
         runner.join(0.1)
 
-    @pytest.fixture(scope="function")
-    def tcp_client(self, tcp_server, host, port):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1.0)
-        sock.connect((host, port))
-        yield sock
-        sock.close()
+    def test_client_server_not_encrypted(self, client, server):
+        sock = client.unwrap()
+        sock.sendall(b"hello")
+        assert server.recv() == b"hello"
 
-    def test_client_server(self, tcp_server, tcp_client):
-        tcp_client.sendall(b"hello")
-        assert tcp_server.recv() == b"hello"
+    def _test_client_server_handshake(self, client, server):
+        client.do_handshake()

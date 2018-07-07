@@ -142,8 +142,15 @@ cdef extern from "mbedtls/ssl.h":
     # mbedtls_ssl_config: set callbacks
     # ---------------------------------
     # mbedtls_ssl_conf_verify  // optional
-    # mbedtls_ssl_conf_rng
-    # mbedtls_ssl_conf_dbg
+
+    void mbedtls_ssl_conf_rng(
+        mbedtls_ssl_config *conf,
+        int (*f_rng)(void *, unsigned char *, size_t), void *p_rng )
+    void mbedtls_ssl_conf_dbg(
+        mbedtls_ssl_config *conf,
+        void (*f_dbg)(void *, int, const char *, int, const char *),
+        void  *p_dbg )
+
     # mbedtls_ssl_conf_read_timeout
     # mbedtls_ssl_conf_session_tickets_cb
     # mbedtls_ssl_conf_export_keys_cb
@@ -183,8 +190,13 @@ cdef extern from "mbedtls/ssl.h":
         mbedtls_ssl_context *ctx,
         const mbedtls_ssl_config *conf)
     int mbedtls_ssl_session_reset(mbedtls_ssl_context *ctx)
+    void mbedtls_ssl_set_bio(
+        mbedtls_ssl_context *ssl,
+        void *p_bio,
+        mbedtls_ssl_send_t *f_send,
+        mbedtls_ssl_recv_t *f_recv,
+        mbedtls_ssl_recv_timeout_t *f_recv_timeout)
 
-    # mbedtls_ssl_set_bio
     # mbedtls_ssl_set_timer_cb
     # mbedtls_ssl_set_client_transport_id
     int mbedtls_ssl_set_session(

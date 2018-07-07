@@ -8,6 +8,7 @@ __license__ = "MIT License"
 from libc.stdlib cimport malloc, realloc, free
 
 cimport mbedtls.pk as _pk
+cimport mbedtls.random as _random
 cimport mbedtls.tls as _tls
 cimport mbedtls.x509 as _x509
 
@@ -17,8 +18,19 @@ from enum import Enum, IntEnum
 
 import certifi
 
+import mbedtls.random as _random
 from mbedtls import _pep543
 from mbedtls.exceptions import *
+
+
+cdef _random.Random __rng = _random.Random()
+
+
+cdef void debug(
+    # FIXME Is this really necessary?
+        void *ctx, int level,
+        const char* file, int line, const char *str):
+    print(file, line, str)
 
 
 def __get_ciphersuite_name(ciphersuite_id):
@@ -163,6 +175,12 @@ cdef class TLSConfiguration:
         self._set_trust_store(trust_store)
         self._set_sni_callback(sni_callback)
 
+        # Set random engine.
+        _tls.mbedtls_ssl_conf_rng(
+            &self._ctx, &_random.mbedtls_ctr_drbg_random, &__rng._ctx)
+        # and debug function.
+        _tls.mbedtls_ssl_conf_dbg(&self._ctx, &debug, NULL)
+
     def __cinit__(self):
         _tls.mbedtls_ssl_config_init(&self._ctx)
 
@@ -204,7 +222,7 @@ cdef class TLSConfiguration:
             &self._ctx,
             Purpose.SERVER_AUTH,
             transport,
-            0))
+            _tls.MBEDTLS_SSL_PRESET_DEFAULT))
 
     cdef _set_validate_certificates(self, validate):
         """Set the certificate verification mode.
@@ -568,8 +586,11 @@ cdef class _BaseContext:
 
     def renegotiate(self):
         """Initialize an SSL renegotiation on the running connection."""
-        check_error(_tls.mbedtls_ssl_renegotiate(&self._ctx))
+        cdef int err = _tls.mbedtls_ssl_renegotiate(&self._ctx)
         # Handle WANT_READ/WRITE
+        if err:
+            self._reset()
+        check_error(err)
 
     def get_channel_binding(self, cb_type="tls-unique"):
         return None
@@ -602,6 +623,8 @@ cdef class ClientContext(_tls._BaseContext):
     def wrap_buffers(self, server_hostname=None):
         """Create an in-memory stream for TLS."""
         # PEP 543
+        if server_hostname is not None:
+            self.set_hostname(server_hostname)
         return TLSWrappedBuffer(self)
 
     def set_hostname(self, hostname):
@@ -681,11 +704,14 @@ class TLSWrappedSocket(_pep543.TLSWrappedSocket):
         super().__init__()
         self._socket = socket
         self._buffer = buffer
+        _tls.mbedtls_ssl_set_bio(
+            &self._buffer._context._ctx,
+            &self._socket.fileno,
 
     # PEP 543 requires the full socket API.
 
     def accept(self):
-        self._socket.accept()
+        return self._socket.accept()
 
     def bind(self, address):
         self._socket.bind(address)
@@ -694,10 +720,10 @@ class TLSWrappedSocket(_pep543.TLSWrappedSocket):
         self._socket.close()
 
     def connect(self, address):
-        ...
+        self._socket.connect(address)
 
     def connect_ex(self, address):
-        ...
+        self._socket.connect_ex(address)
 
     def fileno(self):
         return self._socket.fileno()
@@ -768,7 +794,7 @@ class TLSWrappedSocket(_pep543.TLSWrappedSocket):
 
     @property
     def context(self):
-        return self._context
+        return self._buffer._context
 
     def negotiated_tls_version(self):
         return self._buffer.version()
