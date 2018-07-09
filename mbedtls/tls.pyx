@@ -16,6 +16,7 @@ cimport mbedtls.x509 as _x509
 import socket as _socket
 from collections import namedtuple
 from enum import Enum, IntEnum
+from ipaddress import ip_address
 
 import certifi
 
@@ -224,6 +225,7 @@ cdef class TLSConfiguration:
             Purpose.SERVER_AUTH,
             transport,
             _tls.MBEDTLS_SSL_PRESET_DEFAULT))
+        return self
 
     cdef _set_validate_certificates(self, validate):
         """Set the certificate verification mode.
@@ -656,8 +658,9 @@ cdef class ServerContext(_tls._BaseContext):
         return TLSWrappedBuffer(self)
 
 
-class TLSWrappedBuffer(_pep543.TLSWrappedBuffer):
-    def __init__(self, context):
+cdef class TLSWrappedBuffer:
+    # _pep543.TLSWrappedBuffer
+    def __init__(self, _BaseContext context):
         self._context = context
 
     def read(self, amt):
@@ -702,18 +705,20 @@ class TLSWrappedBuffer(_pep543.TLSWrappedBuffer):
 
 cdef class TLSWrappedSocket:
     # _pep543.TLSWrappedSocket
-    def __init__(self, socket, buffer):
+    def __init__(self, socket, TLSWrappedBuffer buffer):
         super().__init__()
         self._socket = socket
         self._buffer = buffer
         self._proto = _net.MBEDTLS_NET_PROTO_TCP
-        self._ctx.fd = socket.fileno()
-        # _tls.mbedtls_ssl_set_bio(
-        #     &self._buffer._context._ctx,
-        #     &self._ctx.fd,
-        #     &_net.mbedtls_net_send,
-        #     &_net.mbedtls_net_recv,
-        #     NULL)
+        if socket is not None:
+            # Implementation detail.
+            self._ctx.fd = socket.fileno()
+        _tls.mbedtls_ssl_set_bio(
+            &self._buffer._context._ctx,
+            &self._ctx.fd,
+            _net.mbedtls_net_send,
+            _net.mbedtls_net_recv,
+            NULL)
 
     def __cinit__(self):
         _net.mbedtls_net_init(&self._ctx)
@@ -721,11 +726,52 @@ cdef class TLSWrappedSocket:
     def __dealloc__(self):
         _net.mbedtls_net_free(&self._ctx)
 
+    def __str__(self):
+        return "<%s fd=%i, family=%s, type=%s, proto=%i, laddr=%r>" % (
+            type(self).__name__, self.fileno(),
+            self.family, self.type, self.proto, "")
+
     # PEP 543 requires the full socket API.
 
+    @property
+    def family(self):
+        return self._socket.family
+
+    @property
+    def proto(self):
+        return self._socket.proto
+
+    @property
+    def type(self):
+        return self._socket.type
+
     def accept(self):
-        # mbedtls_net_accept
-        ...
+        # cdef ClientContext cli = ClientContext(
+        #     # XXX Replace none with hostname.
+        #     self._buffer._context._conf, None
+        # )
+        cdef TLSWrappedSocket cli = TLSWrappedSocket(None, None)
+        cdef size_t sz = 256
+        cdef size_t ip_sz
+        cdef char* buffer = <char*>malloc(sz * sizeof(char))
+        if not buffer:
+            raise MemoryError()
+        try:
+            check_error(_net.mbedtls_net_accept(
+                &self._ctx, &cli._ctx, &buffer[0], sz, &ip_sz))
+            cli_socket = _socket.fromfd(
+                cli._ctx.fd,
+                _socket.AF_INET,
+                {
+                    _net.MBEDTLS_NET_PROTO_TCP: _socket.SOCK_STREAM,
+                    _net.MBEDTLS_NET_PROTO_UDP: _socket.SOCK_DGRAM
+                }[self._proto]
+            )
+            # return (cli.wrap_socket(cli_socket),
+            #         ip_address(bytes(buffer[:ip_sz])))
+            return cli_socket, ip_address(bytes(buffer[:ip_sz]))
+        finally:
+            free(buffer)
 
     def bind(self, address):
         host, port = address

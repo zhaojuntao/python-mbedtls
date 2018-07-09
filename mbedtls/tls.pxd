@@ -81,9 +81,10 @@ cdef extern from "mbedtls/ssl.h":
 
     # Callback types
     # --------------
-    ctypedef mbedtls_ssl_send_t
-    ctypedef mbedtls_ssl_recv_t
-    ctypedef mbedtls_ssl_recv_timeout_t
+    ctypedef int(*mbedtls_ssl_send_p)(void*, const unsigned char*, size_t)
+    ctypedef int(*mbedtls_ssl_recv_p)(void*, unsigned char*, size_t)
+    ctypedef int(*mbedtls_ssl_recv_timeout_p)(
+        void*, unsigned char* size_t, int)
 
     # mbedtls_ssl_set_timer_t
     # mbedtls_ssl_get_timer_t
@@ -192,12 +193,12 @@ cdef extern from "mbedtls/ssl.h":
         mbedtls_ssl_context *ctx,
         const mbedtls_ssl_config *conf)
     int mbedtls_ssl_session_reset(mbedtls_ssl_context *ctx)
-    # void mbedtls_ssl_set_bio(
-        # mbedtls_ssl_context *ssl,
-        # void *p_bio,
-        # mbedtls_ssl_send_t *f_send,
-        # mbedtls_ssl_recv_t *f_recv,
-        # mbedtls_ssl_recv_timeout_t *f_recv_timeout)
+    void mbedtls_ssl_set_bio(
+        mbedtls_ssl_context *ssl,
+        void *p_bio,
+        mbedtls_ssl_send_p f_send,
+        mbedtls_ssl_recv_p f_recv,
+        mbedtls_ssl_recv_timeout_p f_recv_timeout)
 
     # mbedtls_ssl_set_timer_cb
     # mbedtls_ssl_set_client_transport_id
@@ -273,5 +274,12 @@ cdef class _BaseContext:
     cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt)
 
 
+cdef class TLSWrappedBuffer:
+    cdef _BaseContext _context
+
+
 cdef class TLSWrappedSocket:
     cdef _net.mbedtls_net_context _ctx
+    cdef TLSWrappedBuffer _buffer
+    cdef int _proto
+    cdef _socket

@@ -97,6 +97,7 @@ class TestBaseContext:
         return cls(conf)
 
     def test_get_configuration(self, context, conf):
+        assert conf
         assert context.configuration is conf
 
     @pytest.mark.xfail(raises=MbedTLSError, strict=True)
@@ -122,7 +123,7 @@ class TestBaseContext:
     def test_cipher(self, context):
         assert context.cipher() is None
 
-    # @pytest.mark.xfail(raises=MbedTLSError, strict=True)
+    @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_do_handshake(self, context):
         context.do_handshake()
 
@@ -189,7 +190,7 @@ class TestTLSCommunication:
         sock = ctx.wrap_socket(
             socket.socket(socket.AF_INET, socket.SOCK_STREAM),
             server_hostname=None)
-        sock.settimeout(1.0)
+        sock.settimeout(5.0)
         sock.connect((host, port))
         yield sock
         sock.close()
@@ -205,7 +206,8 @@ class TestTLSCommunication:
 
         def run(pipe):
             while True:
-                conn, addr = srv_socket.accept()
+                conn, addr = sock.accept()
+                assert conn.fileno() != sock.fileno()
                 data = conn.recv(1024)
                 pipe.send(data)
                 conn.close()
@@ -217,9 +219,9 @@ class TestTLSCommunication:
         runner.start()
         yield parent_conn
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as cli:
-            cli.connect((host, port))
-            cli.sendall(b"bye")
+        # with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as cli:
+        #     cli.connect((host, port))
+        #     cli.sendall(b"bye")
         runner.join(0.1)
         sock.close()
 
