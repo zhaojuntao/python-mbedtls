@@ -480,7 +480,6 @@ cdef class _BaseContext:
         configuration (TLSConfiguration): The configuration.
 
     """
-
     def __init__(self, TLSConfiguration configuration):
         # PEP 543
         self._conf = configuration
@@ -582,18 +581,21 @@ cdef class _BaseContext:
 
     def do_handshake(self):
         """Start the SSL/TLS handshake."""
-        cdef int err = _tls.mbedtls_ssl_handshake(&self._ctx)
-        if err:
+        try:
+            check_error(_tls.mbedtls_ssl_handshake(&self._ctx))
+        except MbedTLSError:
+            # XXX Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE.
             self._reset()
-        check_error(err)
+            raise
 
     def renegotiate(self):
         """Initialize an SSL renegotiation on the running connection."""
-        cdef int err = _tls.mbedtls_ssl_renegotiate(&self._ctx)
-        # Handle WANT_READ/WRITE
-        if err:
+        try:
+            check_error(_tls.mbedtls_ssl_renegotiate(&self._ctx))
+        except MbedTLSError:
+            # XXX Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE.
             self._reset()
-        check_error(err)
+            raise
 
     def get_channel_binding(self, cb_type="tls-unique"):
         return None
@@ -750,7 +752,10 @@ cdef class TLSWrappedSocket:
         #     # XXX Replace none with hostname.
         #     self._buffer._context._conf, None
         # )
-        cdef TLSWrappedSocket cli = TLSWrappedSocket(None, None)
+        cdef TLSWrappedSocket cli = TLSWrappedSocket(
+            None,
+            ClientContext(self.context.configuration).wrap_buffers()
+        )
         cdef size_t sz = 256
         cdef size_t ip_sz
         cdef char* buffer = <char*>malloc(sz * sizeof(char))
@@ -767,9 +772,8 @@ cdef class TLSWrappedSocket:
                     _net.MBEDTLS_NET_PROTO_UDP: _socket.SOCK_DGRAM
                 }[self._proto]
             )
-            # return (cli.wrap_socket(cli_socket),
-            #         ip_address(bytes(buffer[:ip_sz])))
-            return cli_socket, ip_address(bytes(buffer[:ip_sz]))
+            cli._socket = cli_socket
+            return cli, ip_address(bytes(buffer[:ip_sz]))
         finally:
             free(buffer)
 
@@ -780,8 +784,8 @@ cdef class TLSWrappedSocket:
             self._proto))
 
     def close(self):
-        # self._socket.close()
-        ...
+        # XXX _reset()
+        self._socket.close()
 
     def connect(self, address):
         host, port = address
@@ -806,7 +810,9 @@ cdef class TLSWrappedSocket:
         return self._socket.getsockopt(optname, buflen=buflen)
 
     def listen(self, backlog):
-        self._socket.listen(backlog)
+        # self._socket.listen(backlog)
+        # XXX fork()
+        ...
 
     # makefile
 

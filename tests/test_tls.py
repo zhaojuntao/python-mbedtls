@@ -190,7 +190,8 @@ class TestTLSCommunication:
         sock = ctx.wrap_socket(
             socket.socket(socket.AF_INET, socket.SOCK_STREAM),
             server_hostname=None)
-        sock.settimeout(5.0)
+        assert isinstance(sock, TLSWrappedSocket)
+        sock.settimeout(2.0)
         sock.connect((host, port))
         yield sock
         sock.close()
@@ -202,7 +203,7 @@ class TestTLSCommunication:
             socket.socket(socket.AF_INET, socket.SOCK_STREAM))
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, port))
-        sock.listen(5)
+        # sock.listen(5)
 
         def run(pipe):
             while True:
@@ -219,6 +220,7 @@ class TestTLSCommunication:
         runner.start()
         yield parent_conn
 
+        # XXX Next requires a forking server.
         # with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as cli:
         #     cli.connect((host, port))
         #     cli.sendall(b"bye")
@@ -226,9 +228,6 @@ class TestTLSCommunication:
         sock.close()
 
     def test_client_server_not_encrypted(self, client, server):
-        sock = client.unwrap()
-        sock.sendall(b"hello")
+        server.do_handshake()
+        client.sendall(b"hello")
         assert server.recv() == b"hello"
-
-    def _test_client_server_handshake(self, client, server):
-        client.do_handshake()
