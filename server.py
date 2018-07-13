@@ -1,5 +1,6 @@
 import socket
 
+from mbedtls.pk import RSA
 from mbedtls.x509 import Certificate
 from mbedtls.tls import *
 
@@ -9,10 +10,18 @@ PORT = 4433
 
 
 def main(host, port):
-    # cert = Certificate.from_file("./tests/ca/wikipedia.pem")
-    # print(cert._info())
+    cert = Certificate.from_file("srv.crt")
+    print(cert._info())
+
+    # XXX missing CAS PEM
+
+    key = RSA()
+    with open("srv.key", "rt") as k:
+        key.from_PEM(k.read())
+    print(key)
 
     conf = TLSConfiguration._create_default_context().update(
+        certificate_chain=([cert], key),
         validate_certificates=False)
     print(conf)
 
