@@ -28,6 +28,9 @@ cdef:
     enum: MBEDTLS_SSL_IS_CLIENT = 0
     enum: MBEDTLS_SSL_IS_SERVER = 1
 
+    enum: MBEDTLS_ERR_SSL_WANT_READ = -0x6900
+    enum: MBEDTLS_ERR_SSL_WANT_WRITE = -0x6880
+
 
 cdef extern from "mbedtls/ssl_internal.h":
     ctypedef struct mbedtls_ssl_transform:

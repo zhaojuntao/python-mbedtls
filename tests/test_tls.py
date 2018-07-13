@@ -163,11 +163,12 @@ class TestServerContext:
 class TestTLSCommunication:
     @pytest.fixture(scope="class")
     def host(self):
-        return "localhost"
+        # return "localhost"
+        return None  # for localhost.
 
     @pytest.fixture(scope="class")
     def port(self):
-        return 50007
+        return 50008
 
     @pytest.fixture(scope="class")
     def srv_conf(self):
@@ -206,14 +207,12 @@ class TestTLSCommunication:
         # sock.listen(5)
 
         def run(pipe):
-            while True:
-                conn, addr = sock.accept()
-                assert conn.fileno() != sock.fileno()
-                data = conn.recv(1024)
-                pipe.send(data)
-                conn.close()
-                if data == b"bye":
-                    break
+            # accept() is blocking.
+            conn, addr = sock.accept()
+            assert conn.fileno() != sock.fileno()
+            data = conn.recv(1024)
+            pipe.send(data)
+            conn.close()
 
         parent_conn, child_conn = mp.Pipe()
         runner = mp.Process(target=run, args=(child_conn,))
@@ -228,6 +227,6 @@ class TestTLSCommunication:
         sock.close()
 
     def test_client_server_not_encrypted(self, client, server):
-        server.do_handshake()
+        client.do_handshake()
         client.sendall(b"hello")
         assert server.recv() == b"hello"

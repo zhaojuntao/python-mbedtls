@@ -215,6 +215,7 @@ cdef class TLSConfiguration:
 
         """
         # XXX This is a free function in the std lib `ssl`.
+        # XXX Handle cafile, capath, cadata.
         if not isinstance(purpose, Purpose):
             raise TypeError(purpose)
         # TLS / DTLS
@@ -582,9 +583,16 @@ cdef class _BaseContext:
     def do_handshake(self):
         """Start the SSL/TLS handshake."""
         try:
-            check_error(_tls.mbedtls_ssl_handshake(&self._ctx))
+            while True:
+                ret = _tls.mbedtls_ssl_handshake(&self._ctx)
+                if ret == 0:
+                    break
+                elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
+                             _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
+                    continue
+                else:
+                    check_error(ret)
         except MbedTLSError:
-            # XXX Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE.
             self._reset()
             raise
 
@@ -606,7 +614,7 @@ cdef class _BaseContext:
         }[_tls.mbedtls_ssl_get_version(&self._ctx).decode("ascii")]
 
 
-cdef class ClientContext(_tls._BaseContext):
+cdef class ClientContext(_BaseContext):
     # _pep543.ClientContext
     def wrap_socket(self, socket, server_hostname):
         """Wrap an existing Python socket object ``socket`` and return a
@@ -648,7 +656,7 @@ cdef class ClientContext(_tls._BaseContext):
         check_error(_tls.mbedtls_ssl_set_session(&self._ctx, &session._ctx))
 
 
-cdef class ServerContext(_tls._BaseContext):
+cdef class ServerContext(_BaseContext):
     # _pep543.ServerContext
     def wrap_socket(self, socket):
         """Wrap an existing Python socket object ``socket``."""
@@ -715,12 +723,6 @@ cdef class TLSWrappedSocket:
         if socket is not None:
             # Implementation detail.
             self._ctx.fd = socket.fileno()
-        _tls.mbedtls_ssl_set_bio(
-            &self._buffer._context._ctx,
-            &self._ctx.fd,
-            _net.mbedtls_net_send,
-            _net.mbedtls_net_recv,
-            NULL)
 
     def __cinit__(self):
         _net.mbedtls_net_init(&self._ctx)
@@ -764,6 +766,8 @@ cdef class TLSWrappedSocket:
         try:
             check_error(_net.mbedtls_net_accept(
                 &self._ctx, &cli._ctx, &buffer[0], sz, &ip_sz))
+                # XXX Example has NULL, 0, NULL for the server.
+                # &self._ctx, &cli._ctx, NULL, 0, NULL))
             cli_socket = _socket.fromfd(
                 cli._ctx.fd,
                 _socket.AF_INET,
@@ -773,15 +777,26 @@ cdef class TLSWrappedSocket:
                 }[self._proto]
             )
             cli._socket = cli_socket
+            _tls.mbedtls_ssl_set_bio(
+                &self._buffer._context._ctx,
+                &cli._ctx,
+                _net.mbedtls_net_send,
+                _net.mbedtls_net_recv,
+                NULL)
             return cli, ip_address(bytes(buffer[:ip_sz]))
         finally:
             free(buffer)
 
     def bind(self, address):
         host, port = address
-        check_error(_net.mbedtls_net_bind(
-            &self._ctx, host.encode("ascii"), str(port).encode("ascii"),
-            self._proto))
+        port = str(port).encode("ascii")
+        if host is None:
+            check_error(_net.mbedtls_net_bind(
+                &self._ctx, NULL, port, self._proto))
+        else:
+            host = host.encode("ascii")
+            check_error(_net.mbedtls_net_bind(
+                &self._ctx, host, port, self._proto))
 
     def close(self):
         # XXX _reset()
@@ -789,13 +804,29 @@ cdef class TLSWrappedSocket:
 
     def connect(self, address):
         host, port = address
-        check_error(_net.mbedtls_net_connect(
-            &self._ctx, host.encode("ascii"), str(port).encode("ascii"),
-            self._proto))
+        port = str(port).encode("ascii")
+        if host is None:
+            check_error(_net.mbedtls_net_connect(
+                &self._ctx, NULL, port, self._proto))
+        else:
+            host = host.encode("ascii")
+            check_error(_net.mbedtls_net_connect(
+                &self._ctx, host, port, self._proto))
+        _tls.mbedtls_ssl_set_bio(
+            &self._buffer._context._ctx,
+            &self._ctx,
+            _net.mbedtls_net_send,
+            _net.mbedtls_net_recv,
+            NULL)
 
     def connect_ex(self, address):
-        # self._socket.connect_ex(address)
-        ...
+        try:
+            self._socket.connect_ex(address)
+        except Exception:
+            # XXX Return errno
+            return -1
+        else:
+            return 0
 
     def fileno(self):
         return self._ctx.fd
