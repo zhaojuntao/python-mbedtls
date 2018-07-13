@@ -252,14 +252,14 @@ cdef class TLSConfiguration:
                 The certificate chain.
 
         """  # PEP 543
-        if chain is None:
+        if not chain:
             return
-        for certs, pk_key in chain:
-            c_pk_key = <_pk.CipherBase?> pk_key
-            for cert in certs:
-                c_cert = <_x509.Certificate?> cert
-                check_error(_tls.mbedtls_ssl_conf_own_cert(
-                    &self._ctx, &c_cert._ctx, &c_pk_key._ctx))
+        certs, pk_key = chain
+        c_pk_key = <_pk.CipherBase?> pk_key
+        for cert in certs:
+            c_cert = <_x509.Certificate?> cert
+            check_error(_tls.mbedtls_ssl_conf_own_cert(
+                &self._ctx, &c_cert._ctx, &c_pk_key._ctx))
 
     @property
     def certificate_chain(self):
