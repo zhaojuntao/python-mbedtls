@@ -30,6 +30,7 @@ cdef:
 
     enum: MBEDTLS_ERR_SSL_WANT_READ = -0x6900
     enum: MBEDTLS_ERR_SSL_WANT_WRITE = -0x6880
+    enum: MBEDTLS_ERR_SSL_CLIENT_RECONNECT = -0x6780
 
 
 cdef extern from "mbedtls/ssl_internal.h":
@@ -273,7 +274,6 @@ cdef class _BaseContext:
     cdef mbedtls_ssl_context _ctx
     cdef TLSConfiguration _conf
     cpdef _reset(self)
-    cpdef _read(self, size_t mt)
     cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt)
 
 

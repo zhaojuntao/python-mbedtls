@@ -41,7 +41,7 @@ def main(host, port):
     cli, address = sock.accept()
     print(cli, address)
 
-    ctx.do_handshake()
+    cli.do_handshake()
 
 
 if __name__ == "__main__":

@@ -504,60 +504,49 @@ cdef class _BaseContext:
     cpdef _reset(self):
         check_error(_tls.mbedtls_ssl_session_reset(&self._ctx))
 
-    cpdef _read(self, size_t amt):
-        cdef unsigned char* output = <unsigned char*>malloc(
-            amt * sizeof(unsigned char))
-        if not output:
-            raise MemoryError()
-        try:
-            ret = _tls.mbedtls_ssl_read(&self._ctx, &output[0], amt)
-            # Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE
-            # Handle MBEDTLS_ERR_SSL_CLIENT_RECONNECT
-            if ret < 0:
-                # self.close()
-                self._reset()
+    cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt):
+        while True:
+            ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
+            if ret >= 0:
+                return ret
+            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
+                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
+                continue
+            elif ret == _tls.MBEDTLS_ERR_SSL_CLIENT_RECONNECT:
+                # Handle that properly.
                 check_error(ret)
             else:
-                if ret == 0:
-                    # Handle ragged EOF
-                    raise ValueError  # Raise proper exception!
-                return bytes(output[:amt])
-        finally:
-            free(output)
-
-    cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt):
-        ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
-        # Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE
-        # Handle MBEDTLS_ERR_SSL_CLIENT_RECONNECT
-        if ret < 0:
-            # self.close()
-            self._reset()
-            check_error(ret)
-        else:
-            if ret == 0:
-                # EOF
-                ret = amt
-            return ret
+                self._reset()
+                check_error(ret)
 
     def read(self, buffer, amt=None):
-        if amt:
-            return self._read_buffer(buffer, amt)
-        amt = buffer
-        return self._read(amt)
+        cdef unsigned char[:] c_buffer
+        if amt is not None:
+            c_buffer = bytearray(buffer)
+            return self._read_buffer(c_buffer, amt)
+        else:
+            # `amt` is the first argument to `read()`.
+            amt = buffer
+            c_buffer = bytearray(amt)
+        amt = self._read_buffer(c_buffer, amt)
+        if amt == 0:
+            # XXX Handle ragged EOF.
+            raise ValueError("Ragger EOF")
+        return bytes(c_buffer[:amt])
 
     def write(self, buffer):
-        cdef unsigned char[:] buf = bytearray(buffer)
-        if buf.shape[0] > _tls.mbedtls_ssl_get_max_frag_len(&self._ctx):
-            raise ValueError  # FIXME: MBEDTLS_ERR_SSL_BAD_INPUT_DATA
-        ret = _tls.mbedtls_ssl_write(
-            &self._ctx, &buf[0], buf.shape[0])
-        # Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE
-        # -> call again with the *same* arguments.
-        if ret >= 0:
-            return ret
-        # self.close()
-        self._reset()
-        check_error(ret)
+        cdef unsigned char[:] c_buffer = bytearray(buffer)
+        while True:
+            ret = _tls.mbedtls_ssl_write(
+                &self._ctx, &c_buffer[0], c_buffer.shape[0])
+            if ret >= 0:
+                return ret
+            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
+                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
+                continue
+            else:
+                self._reset()
+                check_error(ret)
 
     # def getpeercert(self, binary_form=False):
     #     crt = _tls.mbedtls_ssl_get_peer_cert()
@@ -586,7 +575,7 @@ cdef class _BaseContext:
             while True:
                 ret = _tls.mbedtls_ssl_handshake(&self._ctx)
                 if ret == 0:
-                    break
+                    return
                 elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
                              _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
                     continue
@@ -720,7 +709,7 @@ cdef class TLSWrappedSocket:
         self._socket = socket
         self._buffer = buffer
         self._proto = _net.MBEDTLS_NET_PROTO_TCP
-        if socket is not None:
+        if socket is not None and socket.fileno() != -1:
             # Implementation detail.
             self._ctx.fd = socket.fileno()
 
@@ -750,13 +739,9 @@ cdef class TLSWrappedSocket:
         return self._socket.type
 
     def accept(self):
-        # cdef ClientContext cli = ClientContext(
-        #     # XXX Replace none with hostname.
-        #     self._buffer._context._conf, None
-        # )
         cdef TLSWrappedSocket cli = TLSWrappedSocket(
             None,
-            ClientContext(self.context.configuration).wrap_buffers()
+            ServerContext(self.context.configuration).wrap_buffers()
         )
         cdef size_t sz = 256
         cdef size_t ip_sz
@@ -779,7 +764,10 @@ cdef class TLSWrappedSocket:
             cli._socket = cli_socket
             _tls.mbedtls_ssl_set_bio(
                 &self._buffer._context._ctx,
-                &cli._ctx,
+                # &cli._ctx,
+                # XXX I DO NOT THINK THIS IS CORRECT
+                # XXX BUT `&cli._ctx` SEGFAULTS ANYWAY.
+                &self._ctx,
                 _net.mbedtls_net_send,
                 _net.mbedtls_net_recv,
                 NULL)
@@ -822,9 +810,10 @@ cdef class TLSWrappedSocket:
     def connect_ex(self, address):
         try:
             self._socket.connect_ex(address)
-        except Exception:
+        except MbedTLSError as exc:
             # XXX Return errno
-            return -1
+            # return -1
+            return exc.errno
         else:
             return 0
 

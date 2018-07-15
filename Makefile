@@ -7,7 +7,7 @@ PYX += $(wildcard mbedtls/pk/*.pyx)
 LIBMBEDTLS = $(HOME)/lib/mbedtls-2.4.2
 
 debug:
-	cython -a -X linetrace=True $(PYX)
+	cython -a --gdb -X linetrace=True $(PYX)
 	CFLAGS='-DCYTHON_TRACE=1' python setup.py build_ext --inplace \
 		   -L$(LIBMBEDTLS)/lib \
 		   -I$(LIBMBEDTLS)/include

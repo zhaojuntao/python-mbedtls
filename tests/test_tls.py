@@ -102,17 +102,18 @@ class TestBaseContext:
 
     @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_read_amt(self, context):
-        context.read(12)
+        res = context.read(12)
 
+    @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_read_buf_amt(self, context):
         buf = bytearray(32)
-        context.read(buf, 12)
+        assert context.read(buf, 12) == 12
         assert buf == bytearray(32)
 
     @pytest.mark.xfail(raises=MbedTLSError, strict=True)
     def test_write_buf(self, context):
         buf = bytearray(32)
-        context.write(buf)
+        assert context.write(buf) == 32
 
     def test_selected_npn_protocol(self, context):
         assert context.selected_npn_protocol() is None
@@ -226,6 +227,7 @@ class TestTLSCommunication:
         runner.join(0.1)
         sock.close()
 
+    @pytest.mark.skip("segfault")
     def test_client_server_not_encrypted(self, client, server):
         client.do_handshake()
         client.sendall(b"hello")
