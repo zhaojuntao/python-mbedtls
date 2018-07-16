@@ -571,28 +571,31 @@ cdef class _BaseContext:
 
     def do_handshake(self):
         """Start the SSL/TLS handshake."""
-        try:
-            while True:
-                ret = _tls.mbedtls_ssl_handshake(&self._ctx)
-                if ret == 0:
-                    return
-                elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
-                             _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
-                    continue
-                else:
-                    check_error(ret)
-        except MbedTLSError:
-            self._reset()
-            raise
+        while True:
+            ret = _tls.mbedtls_ssl_handshake(&self._ctx)
+            if ret == 0:
+                return
+            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
+                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
+                continue
+            else:
+                assert ret < 0
+                self._reset()
+                check_error(ret)
 
     def renegotiate(self):
         """Initialize an SSL renegotiation on the running connection."""
-        try:
-            check_error(_tls.mbedtls_ssl_renegotiate(&self._ctx))
-        except MbedTLSError:
-            # XXX Handle MBEDTLS_ERR_SSL_WANT_READ/WRITE.
-            self._reset()
-            raise
+        while True:
+            ret = _tls.mbedtls_ssl_renegotiate(&self._ctx)
+            if ret == 0:
+                return
+            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
+                        _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
+                continue
+            else:
+                assert ret < 0
+                self._reset()
+                check_error(ret)
 
     def get_channel_binding(self, cb_type="tls-unique"):
         return None
