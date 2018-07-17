@@ -218,12 +218,12 @@ cdef class TLSConfiguration:
         # XXX Handle cafile, capath, cadata.
         if not isinstance(purpose, Purpose):
             raise TypeError(purpose)
-        # TLS / DTLS
+        # XXX TLS / DTLS
         cdef int transport = _tls.MBEDTLS_SSL_TRANSPORT_STREAM
         cdef TLSConfiguration self = cls()
         check_error(_tls.mbedtls_ssl_config_defaults(
             &self._ctx,
-            Purpose.SERVER_AUTH,
+            purpose,
             transport,
             _tls.MBEDTLS_SSL_PRESET_DEFAULT))
         return self
@@ -531,7 +531,7 @@ cdef class _BaseContext:
         amt = self._read_buffer(c_buffer, amt)
         if amt == 0:
             # XXX Handle ragged EOF.
-            raise ValueError("Ragger EOF")
+            raise ValueError("Ragged EOF")
         return bytes(c_buffer[:amt])
 
     def write(self, buffer):
@@ -634,8 +634,13 @@ cdef class ClientContext(_BaseContext):
 
     def set_hostname(self, hostname):
         """Set the hostname to check against the received server."""
-        cdef char[:] c_hostname = hostname.encode("utf8")
-        check_error(_tls.mbedtls_ssl_set_hostname(&self._ctx, &c_hostname[0]))
+        if hostname is None:
+            return
+        # Note: `ssl_set_hostname()` makes a copy so it is safe
+        #       to call with the temporary `hostname_`.
+        hostname_ = hostname.encode("utf8")
+        cdef const char* c_hostname = hostname_
+        check_error(_tls.mbedtls_ssl_set_hostname(&self._ctx, c_hostname))
 
     def save_session(self):
         """Save session in order to resume it."""
@@ -756,21 +761,19 @@ cdef class TLSWrappedSocket:
                 &self._ctx, &cli._ctx, &buffer[0], sz, &ip_sz))
                 # XXX Example has NULL, 0, NULL for the server.
                 # &self._ctx, &cli._ctx, NULL, 0, NULL))
-            cli_socket = _socket.fromfd(
-                cli._ctx.fd,
-                _socket.AF_INET,
-                {
+            cli._socket = _socket.socket(
+                family=_socket.AF_INET,
+                type={
                     _net.MBEDTLS_NET_PROTO_TCP: _socket.SOCK_STREAM,
                     _net.MBEDTLS_NET_PROTO_UDP: _socket.SOCK_DGRAM
-                }[self._proto]
+                }[self._proto],
+                # XXX Next argument is not in Python 2.7!
+                fileno=cli._ctx.fd,
             )
-            cli._socket = cli_socket
+            assert cli._socket.fileno() == cli._ctx.fd
             _tls.mbedtls_ssl_set_bio(
                 &self._buffer._context._ctx,
-                # &cli._ctx,
-                # XXX I DO NOT THINK THIS IS CORRECT
-                # XXX BUT `&cli._ctx` SEGFAULTS ANYWAY.
-                &self._ctx,
+                &cli._ctx,
                 _net.mbedtls_net_send,
                 _net.mbedtls_net_recv,
                 NULL)

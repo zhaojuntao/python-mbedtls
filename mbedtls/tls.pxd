@@ -11,22 +11,30 @@ cimport mbedtls.x509 as _x509
 
 
 cdef:
-    enum: MBEDTLS_SSL_TRANSPORT_STREAM = 0
-    enum: MBEDTLS_SSL_TRANSPORT_DATAGRAM = 1
-    enum: MBEDTLS_SSL_PRESET_DEFAULT = 0
-    enum: MBEDTLS_SSL_PRESET_SUITEB = 2
-    enum: MBEDTLS_SSL_VERIFY_NONE = 0
-    enum: MBEDTLS_SSL_VERIFY_OPTIONAL = 1
-    enum: MBEDTLS_SSL_VERIFY_REQUIRED = 2
+    enum:
+        MBEDTLS_SSL_TRANSPORT_STREAM = 0
+        MBEDTLS_SSL_TRANSPORT_DATAGRAM = 1
+
+    enum:
+        MBEDTLS_SSL_PRESET_DEFAULT = 0
+        MBEDTLS_SSL_PRESET_SUITEB = 2
+
+    enum:
+        MBEDTLS_SSL_VERIFY_NONE = 0
+        MBEDTLS_SSL_VERIFY_OPTIONAL = 1
+        MBEDTLS_SSL_VERIFY_REQUIRED = 2
 
     enum: MBEDTLS_SSL_MAJOR_VERSION_3 = 3
-    enum: MBEDTLS_SSL_MINOR_VERSION_0 = 0
-    enum: MBEDTLS_SSL_MINOR_VERSION_1 = 1
-    enum: MBEDTLS_SSL_MINOR_VERSION_2 = 2
-    enum: MBEDTLS_SSL_MINOR_VERSION_3 = 3
 
-    enum: MBEDTLS_SSL_IS_CLIENT = 0
-    enum: MBEDTLS_SSL_IS_SERVER = 1
+    enum:
+        MBEDTLS_SSL_MINOR_VERSION_0 = 0
+        MBEDTLS_SSL_MINOR_VERSION_1 = 1
+        MBEDTLS_SSL_MINOR_VERSION_2 = 2
+        MBEDTLS_SSL_MINOR_VERSION_3 = 3
+
+    enum:
+        MBEDTLS_SSL_IS_CLIENT
+        MBEDTLS_SSL_IS_SERVER
 
     enum: MBEDTLS_ERR_SSL_WANT_READ = -0x6900
     enum: MBEDTLS_ERR_SSL_WANT_WRITE = -0x6880
@@ -62,8 +70,6 @@ cdef extern from "mbedtls/ssl.h":
         pass
 
     ctypedef struct mbedtls_ssl_config:
-        # set_validate_certificates
-        unsigned int authmode
         # set_certificate_chain
         mbedtls_ssl_key_cert *key_cert
         # set_ciphers
@@ -75,6 +81,12 @@ cdef extern from "mbedtls/ssl.h":
         unsigned char max_minor_ver
         unsigned char min_major_ver
         unsigned char min_minor_ver
+
+        unsigned int endpoint
+        unsigned int transport
+        # set_validate_certificates
+        unsigned int authmode
+
         # set_trust_store
         # ca_chain / ca_crl
         # set_sni_callback

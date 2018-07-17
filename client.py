@@ -1,5 +1,6 @@
 import socket
 
+from mbedtls.x509 import Certificate
 from mbedtls.tls import *
 
 
@@ -9,8 +10,11 @@ PORT = 4433
 
 
 def main(host, port):
+    store = TrustStore.from_pem_file("srv.crt")
+
     conf = TLSConfiguration._create_default_context(
         purpose=Purpose.CLIENT_AUTH).update(
+            trust_store=store,
             validate_certificates=False)
     print(conf)
 
@@ -19,11 +23,12 @@ def main(host, port):
 
     sock = ctx.wrap_socket(
         socket.socket(socket.AF_INET, socket.SOCK_STREAM),
-        None)
+        server_hostname="localhost")
     assert isinstance(sock, TLSWrappedSocket)
     print(sock)
 
     sock.connect((host, port))
+    # sock.do_handshake()
 
 
 if __name__ == "__main__":

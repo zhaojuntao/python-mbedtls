@@ -1,5 +1,7 @@
 import socket
 
+# import certifi
+
 from mbedtls.pk import RSA
 from mbedtls.x509 import Certificate
 from mbedtls.tls import *
@@ -13,15 +15,18 @@ def main(host, port):
     cert = Certificate.from_file("srv.crt")
     print(cert._info())
 
-    # XXX missing CAS PEM
+    store = TrustStore.from_pem_file("srv.crt")
 
     key = RSA()
     with open("srv.key", "rt") as k:
         key.from_PEM(k.read())
     print(key)
 
-    conf = TLSConfiguration._create_default_context().update(
+    conf = TLSConfiguration._create_default_context(
+        purpose=Purpose.SERVER_AUTH,
+    ).update(
         certificate_chain=([cert], key),
+        trust_store=store,
         validate_certificates=False)
     print(conf)
 
