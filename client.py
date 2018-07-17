@@ -13,10 +13,12 @@ def main(host, port):
     store = TrustStore.from_pem_file("srv.crt")
 
     conf = TLSConfiguration._create_default_context(
-        purpose=Purpose.CLIENT_AUTH).update(
-            trust_store=store,
-            # highest_supported_version=TLSVersion.SSLv3,
-            validate_certificates=False)
+        purpose=Purpose.CLIENT_AUTH,
+    ).update(
+    # conf = TLSConfiguration(
+        trust_store=store,
+        # highest_supported_version=TLSVersion.SSLv3,
+        validate_certificates=False)
     print(conf)
 
     ctx = ClientContext(conf)
@@ -29,7 +31,11 @@ def main(host, port):
     print(sock)
 
     sock.connect((host, port))
-    sock.do_handshake()
+    print("HS", sock.context.state)
+    # sock.do_handshake()
+    while sock.context._do_handshake_step():
+        # XXX FAILS RIGHT AFTER CLIENT HELLO.
+        print(".", sock.context.state)
 
 
 if __name__ == "__main__":

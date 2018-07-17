@@ -20,7 +20,6 @@ def main(host, port):
     key = RSA()
     with open("srv.key", "rt") as k:
         key.from_PEM(k.read())
-    print(key)
 
     conf = TLSConfiguration._create_default_context(
         purpose=Purpose.SERVER_AUTH,
@@ -46,7 +45,10 @@ def main(host, port):
     cli, address = sock.accept()
     print(cli, address)
 
-    cli.do_handshake()
+    print("HS", cli.context.state)
+    # cli.do_handshake()
+    while cli.context._do_handshake_step():
+        print(".", cli.context.state)
 
 
 if __name__ == "__main__":

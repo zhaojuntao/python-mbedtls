@@ -94,6 +94,7 @@ cdef extern from "mbedtls/ssl.h":
 
     ctypedef struct mbedtls_ssl_context:
         const mbedtls_ssl_config *conf
+        int state
 
     # Callback types
     # --------------
@@ -242,7 +243,7 @@ cdef extern from "mbedtls/ssl.h":
         const mbedtls_ssl_context *ssl,
         mbedtls_ssl_session *session)
     int mbedtls_ssl_handshake(mbedtls_ssl_context *ctx)
-    # mbedtls_ssl_handshake_step
+    int mbedtls_ssl_handshake_step(mbedtls_ssl_context *ssl)
     int mbedtls_ssl_renegotiate(mbedtls_ssl_context *ssl)
     int mbedtls_ssl_read(
         mbedtls_ssl_context *ctx,

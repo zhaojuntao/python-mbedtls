@@ -590,6 +590,14 @@ cdef class _BaseContext:
         secret_bits = None
         return name.decode("ascii"), ssl_version, secret_bits
 
+    @property
+    def state(self):
+        return self._ctx.state
+
+    def _do_handshake_step(self):
+        check_error(_tls.mbedtls_ssl_handshake_step(&self._ctx))
+        return self.state != 16  # MBEDTLS_SSL_HANDSHAKE_OVER
+
     def do_handshake(self):
         """Start the SSL/TLS handshake."""
         while True:
