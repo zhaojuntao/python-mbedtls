@@ -608,6 +608,12 @@ cdef class _BaseContext:
 
 cdef class ClientContext(_BaseContext):
     # _pep543.ClientContext
+
+    def __init__(self, TLSConfiguration configuration):
+        _tls.mbedtls_ssl_conf_endpoint(
+            &configuration._ctx, _tls.MBEDTLS_SSL_IS_CLIENT)
+        super(ClientContext, self).__init__(configuration)
+
     def wrap_socket(self, socket, server_hostname):
         """Wrap an existing Python socket object ``socket`` and return a
         ``TLSWrappedSocket`` object. ``socket`` must be a ``SOCK_STREAM``
@@ -655,6 +661,12 @@ cdef class ClientContext(_BaseContext):
 
 cdef class ServerContext(_BaseContext):
     # _pep543.ServerContext
+
+    def __init__(self, TLSConfiguration configuration not None):
+        _tls.mbedtls_ssl_conf_endpoint(
+            &configuration._ctx, _tls.MBEDTLS_SSL_IS_SERVER)
+        super(ServerContext, self).__init__(configuration)
+
     def wrap_socket(self, socket):
         """Wrap an existing Python socket object ``socket``."""
         buffer = self.wrap_buffers()
