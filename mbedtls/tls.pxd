@@ -119,7 +119,7 @@ cdef extern from "mbedtls/ssl.h":
     # mbedtls_ssl_config
     # ------------------
     void mbedtls_ssl_conf_endpoint(mbedtls_ssl_config *conf, int endpoint)
-    # mbedtls_ssl_conf_transport
+    # void mbedtls_ssl_conf_transport(mbedtls_ssl_config *conf, int transport)
 
     void mbedtls_ssl_conf_authmode(mbedtls_ssl_config *conf, int authmode)
     void mbedtls_ssl_conf_ciphersuites(

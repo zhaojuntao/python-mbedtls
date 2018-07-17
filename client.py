@@ -15,6 +15,7 @@ def main(host, port):
     conf = TLSConfiguration._create_default_context(
         purpose=Purpose.CLIENT_AUTH).update(
             trust_store=store,
+            # highest_supported_version=TLSVersion.SSLv3,
             validate_certificates=False)
     print(conf)
 
@@ -28,7 +29,7 @@ def main(host, port):
     print(sock)
 
     sock.connect((host, port))
-    # sock.do_handshake()
+    sock.do_handshake()
 
 
 if __name__ == "__main__":

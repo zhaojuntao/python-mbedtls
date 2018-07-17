@@ -106,6 +106,9 @@ class TrustStore:
             db = []
         self._db = tuple(db)
 
+    def __repr__(self):
+        return "%s(%r)" % (type(self).__name__, self._db)
+
     @classmethod
     def system(cls):
         return cls.from_pem_file(certifi.where())
@@ -205,6 +208,26 @@ cdef class TLSConfiguration:
         free(self._ciphers)
         free(self._protos)
 
+    def __repr__(self):
+        return ("%s("
+                "validate_certificates=%r, "
+                "certificate_chain=%r, "
+                "ciphers=%r, "
+                "inner_protocols=%r, "
+                "lowest_supported_version=%r, "
+                "highest_supported_version=%r, "
+                "trust_store=%r, "
+                "sni_callback=%r)"
+                % (type(self).__name__,
+                   self.validate_certificates,
+                   self.certificate_chain,
+                   self.ciphers,
+                   self.inner_protocols,
+                   self.lowest_supported_version,
+                   self.highest_supported_version,
+                   self.trust_store,
+                   self.sni_callback))
+
     @classmethod
     def _create_default_context(cls, purpose=Purpose.SERVER_AUTH,
                                 cafile=None, capath=None, cadata=None):
@@ -216,9 +239,10 @@ cdef class TLSConfiguration:
         """
         # XXX This is a free function in the std lib `ssl`.
         # XXX Handle cafile, capath, cadata.
+        # XXX FIXME XXX This does not return a context!
         if not isinstance(purpose, Purpose):
             raise TypeError(purpose)
-        # XXX TLS / DTLS
+        # XXX TLS / DTLS: This should come from the socket config.
         cdef int transport = _tls.MBEDTLS_SSL_TRANSPORT_STREAM
         cdef TLSConfiguration self = cls()
         check_error(_tls.mbedtls_ssl_config_defaults(
@@ -271,7 +295,7 @@ cdef class TLSConfiguration:
         #
         # alt: check keys in mbedtls_x509write_cert
         chain = []
-        while True:
+        while False:  # XXX not implemented!
             key_cert = self._ctx.key_cert
             if key_cert is NULL:
                 break
@@ -482,11 +506,8 @@ cdef class _BaseContext:
 
     """
     def __init__(self, TLSConfiguration configuration):
-        # PEP 543
         self._conf = configuration
-        check_error(_tls.mbedtls_ssl_setup(
-            &self._ctx, &self._conf._ctx))
-        # 0 if successful, or MBEDTLS_ERR_SSL_ALLOC_FAILED
+        check_error(_tls.mbedtls_ssl_setup(&self._ctx, &self._conf._ctx))
 
     def __cinit__(self):
         """Initialize an `ssl_context`."""
