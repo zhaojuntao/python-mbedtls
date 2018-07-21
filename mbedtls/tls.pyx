@@ -562,11 +562,10 @@ cdef class _BaseContext:
             raise ValueError("Ragged EOF")
         return bytes(c_buffer[:amt])
 
-    def write(self, buffer):
-        cdef unsigned char[:] c_buffer = bytearray(buffer)
+    def write(self, const unsigned char[:] buffer):
         while True:
             ret = _tls.mbedtls_ssl_write(
-                &self._ctx, &c_buffer[0], c_buffer.shape[0])
+                &self._ctx, &buffer[0], buffer.shape[0])
             if ret >= 0:
                 return ret
             elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
@@ -899,35 +898,14 @@ cdef class TLSWrappedSocket:
 
     # makefile
 
-    def recv(self, size_t bufsize, flags=0):
+    def recv(self, size_t bufsize, flags=None):
         if flags:
             raise NotImplementedError("flags not supported")
-        cdef unsigned char* buffer = <unsigned char *>malloc(
-            bufsize * sizeof(unsigned char))
-        if not buffer:
-            raise MemoryError()
-        try:
-            while True:
-                if self.gettimeout():
-                    ret = check_error(_net.mbedtls_net_recv_timeout(
-                        &self._ctx, &buffer[0], bufsize, int(self._timeout)))
-                else:
-                    ret = check_error(_net.mbedtls_net_recv(
-                        &self._ctx, &buffer[0], bufsize))
-
-                if ret >= 0:
-                    return bytes(buffer[:ret])
-                elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
-                             _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
-                    continue
-                elif ret is _tls.MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
-                    break
-                elif ret is _tls.MBEDTLS_ERR_NET_CONN_RESET:
-                    break
-                else:
-                    check_error(ret)
-        finally:
-            free(buffer)
+        else:
+            # From `python.org`, calling recv() without flags
+            # is equivalent to read().
+            # XXX Handle timeout?
+            self.context.read(bufsize)
 
     def recvfrom(self, bufsize, flags=None):
         ...
@@ -938,21 +916,13 @@ cdef class TLSWrappedSocket:
     def recv_into(self, buffer, nbytes=None, flags=None):
         ...
 
-    def send(self, const unsigned char[:] message, flags=0):
+    def send(self, const unsigned char[:] message, flags=None):
         if flags:
             raise NotImplementedError("flags not supported")
-        while True:
-            ret = check_error(_net.mbedtls_net_send(
-                &self._ctx, &message[0], message.size))
-            if ret >= 0:
-                return ret
-            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
-                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
-                continue
-            elif ret is _tls.MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
-                break
-            else:
-                check_error(ret)
+        else:
+            # From `python.org`, calling send() without flags
+            # is equivalent to write()
+            return self.context.write(message)
 
     def sendall(self, string, flags=None):
         ...

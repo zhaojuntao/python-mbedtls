@@ -37,8 +37,8 @@ def main(host, port):
 
     request = b"GET / HTTP/1.0\r\n\r\n"
     print("  > write to server:", request)
-    sock.send(request)
-    print(sock.recv(150))
+    sock.context.write(request)
+    print(sock.context.read(1024))
     sock.close()
 
 
