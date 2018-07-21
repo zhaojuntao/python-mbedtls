@@ -23,7 +23,8 @@ def main(host, port):
 
     conf = TLSConfiguration(
         certificate_chain=([cert], key),
-        # trust_store=store,
+        # highest_supported_version=TLSVersion.MINIMUM_SUPPORTED,
+        trust_store=store,
         validate_certificates=False)
     print(conf)
 

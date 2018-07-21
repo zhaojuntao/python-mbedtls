@@ -602,9 +602,17 @@ cdef class _BaseContext:
         return HandshakeStep(self._ctx.state)
 
     def _do_handshake_step(self):
-        check_error(_tls.mbedtls_ssl_handshake_step(&self._ctx))
-        return self._state
-        # return self._state != 16  # MBEDTLS_SSL_HANDSHAKE_OVER
+        # self._state == 16 is MBEDTLS_SSL_HANDSHAKE_OVER
+        while True:
+            ret = _tls.mbedtls_ssl_handshake_step(&self._ctx)
+            if ret == 0:
+                return self._state
+            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
+                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
+                continue
+            else:
+                self._reset()
+                check_error(ret)
 
     def do_handshake(self):
         """Start the SSL/TLS handshake."""

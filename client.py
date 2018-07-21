@@ -13,7 +13,8 @@ def main(host, port):
     store = TrustStore.from_pem_file("srv.crt")
 
     conf = TLSConfiguration(
-        # trust_store=store,
+        # highest_supported_version=TLSVersion.MINIMUM_SUPPORTED,
+        trust_store=store,
         validate_certificates=False,
     )
     print(conf)
