@@ -915,7 +915,7 @@ cdef class TLSWrappedSocket:
             # From `python.org`, calling recv() without flags
             # is equivalent to read().
             # XXX Handle timeout?
-            return self.context.read(bufsize)
+            return self._buffer.read(bufsize)
 
     def recvfrom(self, bufsize, flags=None):
         ...
@@ -932,7 +932,7 @@ cdef class TLSWrappedSocket:
         else:
             # From `python.org`, calling send() without flags
             # is equivalent to write()
-            return self.context.write(message)
+            return self._buffer.write(message)
 
     def sendall(self, string, flags=None):
         ...
@@ -963,12 +963,13 @@ cdef class TLSWrappedSocket:
 
     def shutdown(self, how):
         # XXX
+        self._buffer.shutdown()
         self._socket.shutdown(how)
 
     # PEP 543 adds the following methods.
 
     def do_handshake(self):
-        self.context.do_handshake()
+        self._buffer.do_handshake()
 
     def cipher(self):
         return self._buffer.cipher()
