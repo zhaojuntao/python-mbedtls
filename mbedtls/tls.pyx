@@ -915,7 +915,7 @@ cdef class TLSWrappedSocket:
             # From `python.org`, calling recv() without flags
             # is equivalent to read().
             # XXX Handle timeout?
-            self.context.read(bufsize)
+            return self.context.read(bufsize)
 
     def recvfrom(self, bufsize, flags=None):
         ...

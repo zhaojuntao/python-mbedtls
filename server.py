@@ -43,18 +43,23 @@ def main(host, port):
     print("  . cipher: ", sock.cipher())
     print("  . Waiting for client...")
 
-    cli, address = sock.accept()
-    cli.do_handshake()
+    try:
+        while True:
+            cli, address = sock.accept()
+            cli.do_handshake()
 
-    print("  . TLS Version: ", sock.negotiated_tls_version())
-    print("  . protocol: ", sock.negotiated_protocol())
-    print("  . cipher: ", sock.cipher())
+            print("  . TLS Version: ", sock.negotiated_tls_version())
+            print("  . protocol: ", sock.negotiated_protocol())
+            print("  . cipher: ", sock.cipher())
 
-    print("  < Read from client", end=" ")
-    time.sleep(1.0)
-    request = cli.recv(1024)
-    print(request)
-    cli.close()
+            print("  < Read from client", end=" ")
+            request = cli.recv(1024)
+            print(request)
+            print("  > Write to client", end=" ")
+            cli.send(b"bye")
+
+    except KeyboardInterrupt:
+        sock.close()
 
 
 if __name__ == "__main__":
