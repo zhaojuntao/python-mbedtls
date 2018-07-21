@@ -1,4 +1,5 @@
 import socket
+import time
 
 # import certifi
 
@@ -37,18 +38,23 @@ def main(host, port):
     print("binding to %r:%i" % (host, port))
     sock.bind((host, port))
 
-    print("waiting for client...")
+    print("  . TLS Version: ", sock.negotiated_tls_version())
+    print("  . protocol: ", sock.negotiated_protocol())
+    print("  . cipher: ", sock.cipher())
+    print("  . Waiting for client...")
 
     cli, address = sock.accept()
-    print(cli, address)
+    cli.do_handshake()
 
-    print(cli.context._state)
-    # cli.do_handshake()
-    while True:
-        state = cli.context._do_handshake_step()
-        print(".", state)
-        if state == 16:
-            break
+    print("  . TLS Version: ", sock.negotiated_tls_version())
+    print("  . protocol: ", sock.negotiated_protocol())
+    print("  . cipher: ", sock.cipher())
+
+    print("  < Read from client", end=" ")
+    time.sleep(1.0)
+    request = cli.recv(1024)
+    print(request)
+    cli.close()
 
 
 if __name__ == "__main__":

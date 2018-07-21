@@ -788,6 +788,7 @@ cdef class TLSWrappedSocket:
         if socket is not None and socket.fileno() != -1:
             # Implementation detail.
             self._ctx.fd = socket.fileno()
+            self._set_bio()
 
     def __cinit__(self):
         _net.mbedtls_net_init(&self._ctx)
@@ -799,6 +800,14 @@ cdef class TLSWrappedSocket:
         return "<%s fd=%i, family=%s, type=%s, proto=%i, laddr=%r>" % (
             type(self).__name__, self.fileno(),
             self.family, self.type, self.proto, "")
+
+    cdef void _set_bio(self):
+        _tls.mbedtls_ssl_set_bio(
+            &self._buffer._context._ctx,
+            &self._ctx,
+            _net.mbedtls_net_send,
+            _net.mbedtls_net_recv,
+            NULL)
 
     # PEP 543 requires the full socket API.
 
@@ -839,12 +848,7 @@ cdef class TLSWrappedSocket:
                 fileno=cli._ctx.fd,
             )
             assert cli._socket.fileno() == cli._ctx.fd
-            _tls.mbedtls_ssl_set_bio(
-                &self._buffer._context._ctx,
-                &cli._ctx,
-                _net.mbedtls_net_send,
-                _net.mbedtls_net_recv,
-                NULL)
+            cli._set_bio()
             return cli, ip_address(bytes(buffer[:ip_sz]))
         finally:
             free(buffer)
@@ -874,12 +878,6 @@ cdef class TLSWrappedSocket:
             host = host.encode("ascii")
             check_error(_net.mbedtls_net_connect(
                 &self._ctx, host, port, self._proto))
-        _tls.mbedtls_ssl_set_bio(
-            &self._buffer._context._ctx,
-            &self._ctx,
-            _net.mbedtls_net_send,
-            _net.mbedtls_net_recv,
-            NULL)
 
     def connect_ex(self, address):
         try:
