@@ -5,7 +5,11 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-from libc.stdlib cimport malloc, free
+BUFFER = False
+
+
+from libc.stdlib cimport malloc, realloc, free
+from libc.string cimport memcpy
 
 cimport mbedtls.pk as _pk
 cimport mbedtls._net as _net
@@ -26,6 +30,28 @@ from mbedtls.exceptions import *
 
 
 cdef _random.Random __rng = _random.Random()
+
+
+cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
+    ctx_ = <_tls._TLSBuffer*>ctx
+    ctx_.buf = <unsigned char *>realloc(
+        ctx_.buf, len * sizeof(unsigned char))
+    ctx_.len = len
+    if not ctx_.buf:
+        return -1  # XXX
+    memcpy(ctx_.buf, buf, len)
+    return 0
+
+
+cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
+    ctx_ = <_tls._TLSBuffer*>ctx
+    ctx_.buf = <unsigned char *>realloc(
+        ctx_.buf, len * sizeof(unsigned char))
+    ctx_.len = len
+    if not ctx_.buf:
+        return -1
+    memcpy(ctx_.buf, buf, len)
+    return 0
 
 
 cdef void debug(
@@ -532,11 +558,14 @@ cdef class _BaseContext:
     cpdef _reset(self):
         check_error(_tls.mbedtls_ssl_session_reset(&self._ctx))
 
-    cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt):
+    def _readinto(self, unsigned char[:] buffer, size_t amt):
         while True:
             ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
-            if ret >= 0:
+            if ret > 0:
                 return ret
+            elif ret == 0:
+                # XXX Handle ragged EOF.
+                raise ValueError("Ragged EOF")
             elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
                          _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
                 continue
@@ -547,22 +576,7 @@ cdef class _BaseContext:
                 self._reset()
                 check_error(ret)
 
-    def read(self, buffer, amt=None):
-        cdef unsigned char[:] c_buffer
-        if amt is not None:
-            c_buffer = bytearray(buffer)
-            return self._read_buffer(c_buffer, amt)
-        else:
-            # `amt` is the first argument to `read()`.
-            amt = buffer
-            c_buffer = bytearray(amt)
-        amt = self._read_buffer(c_buffer, amt)
-        if amt == 0:
-            # XXX Handle ragged EOF.
-            raise ValueError("Ragged EOF")
-        return bytes(c_buffer[:amt])
-
-    def write(self, const unsigned char[:] buffer):
+    def _write(self, const unsigned char[:] buffer):
         while True:
             ret = _tls.mbedtls_ssl_write(
                 &self._ctx, &buffer[0], buffer.shape[0])
@@ -578,21 +592,21 @@ cdef class _BaseContext:
     # def getpeercert(self, binary_form=False):
     #     crt = _tls.mbedtls_ssl_get_peer_cert()
 
-    def selected_npn_protocol(self):
+    def _selected_npn_protocol(self):
         return None
 
-    def selected_alpn_protocol(self):
+    def _selected_alpn_protocol(self):
         cdef const char* protocol = _tls.mbedtls_ssl_get_alpn_protocol(
             &self._ctx)
         if protocol is NULL:
             return None
         return protocol.decode("ascii")
 
-    def cipher(self):
+    def _cipher(self):
         cdef const char* name = _tls.mbedtls_ssl_get_ciphersuite(&self._ctx)
         if name is NULL:
             return None
-        ssl_version = self.version()
+        ssl_version = self._version()
         secret_bits = None
         return name.decode("ascii"), ssl_version, secret_bits
 
@@ -613,7 +627,7 @@ cdef class _BaseContext:
                 self._reset()
                 check_error(ret)
 
-    def do_handshake(self):
+    def _do_handshake(self):
         """Start the SSL/TLS handshake."""
         while True:
             ret = _tls.mbedtls_ssl_handshake(&self._ctx)
@@ -627,7 +641,7 @@ cdef class _BaseContext:
                 self._reset()
                 check_error(ret)
 
-    def renegotiate(self):
+    def _renegotiate(self):
         """Initialize an SSL renegotiation on the running connection."""
         while True:
             ret = _tls.mbedtls_ssl_renegotiate(&self._ctx)
@@ -641,10 +655,10 @@ cdef class _BaseContext:
                 self._reset()
                 check_error(ret)
 
-    def get_channel_binding(self, cb_type="tls-unique"):
+    def _get_channel_binding(self, cb_type="tls-unique"):
         return None
 
-    def version(self):
+    def _version(self):
         # Strings from `ssl_tls.c`.
         # DTLS:
         #   "DTLSv1.0"
@@ -735,46 +749,80 @@ cdef class TLSWrappedBuffer:
     def __init__(self, _BaseContext context):
         self._context = context
 
+    def __dealloc__(self):
+        # XXX Use PyBuffer!
+        free(self._buf.buf)
+
+    cdef _buffer(self):
+        # XXX Use PyBuffer!
+        return bytes(self._buf.buf[:self._buf.len])
+
+    cdef void _set_bio(self):
+        if BUFFER:
+            _tls.mbedtls_ssl_set_bio(
+                &self._context._ctx,
+                &self._buf,
+                buffer_send,
+                buffer_recv,
+                NULL)
+
     def read(self, amt):
-        return self.context.read(amt)
+        # PEP 543
+        self._set_bio()
+        buffer = bytearray(amt)
+        amt = self.readinto(buffer, amt)
+        return bytes(buffer[:amt])
 
     def readinto(self, buffer, amt):
-        return self.context.read(buffer, amt)
+        # PEP 543
+        self._set_bio()
+        return self.context._readinto(buffer, amt)
 
     def write(self, buf):
-        self.context.write(buf)
+        # PEP 543
+        self._set_bio()
+        self.context._write(buf)
 
     def do_handshake(self):
-        self.context.do_handshake()
+        # PEP 543
+        self.context._do_handshake()
 
     def cipher(self):
-        cipher = self.context.cipher()
+        # PEP 543
+        cipher = self.context._cipher()
         if cipher is None:
             return cipher
         else:
             return cipher[0]
 
     def negotiated_protocol(self):
-        return self.context.selected_alpn_protocol()
+        # PEP 543
+        return self.context._selected_alpn_protocol()
 
     @property
     def context(self):
+        # PEP 543
         """The ``Context`` object this buffer is tied to."""
         return self._context
 
     def negotiated_tls_version(self):
-        return self.context.version()
+        # PEP 543
+        return self.context._version()
 
     def shutdown(self):
+        # PEP 543
         self._context._reset()
 
     def receive_from_network(self, data):
+        # PEP 543
         ...
 
     def peek_outgoing(self, amt):
+        # PEP 543
         ...
 
     def consume_outgoing(self, amt):
+        # PEP 543
         ...
 
 
@@ -800,6 +848,10 @@ cdef class TLSWrappedSocket:
         return "<%s fd=%i, family=%s, type=%s, proto=%i, laddr=%r>" % (
             type(self).__name__, self.fileno(),
             self.family, self.type, self.proto, "")
+
+    def show(self):
+        # XXX DELETE ME
+        return self._buffer._buffer()
 
     cdef void _set_bio(self):
         _tls.mbedtls_ssl_set_bio(
@@ -880,17 +932,10 @@ cdef class TLSWrappedSocket:
                 &self._ctx, host, port, self._proto))
 
     def connect_ex(self, address):
-        try:
-            self._socket.connect_ex(address)
-        except MbedTLSError as exc:
-            # XXX Return errno
-            # return -1
-            return exc.errno
-        else:
-            return 0
+        self._socket.connect_ex(address)
 
     def fileno(self):
-        return self._ctx.fd
+        return self._socket.fileno()
 
     def getpeername(self):
         return self._socket.getpeername()
@@ -902,39 +947,38 @@ cdef class TLSWrappedSocket:
         return self._socket.getsockopt(optname, buflen=buflen)
 
     def listen(self, backlog):
-        # self._socket.listen(backlog)
-        # XXX fork()
-        ...
+        self._socket.listen(backlog)
 
     # makefile
 
-    def recv(self, size_t bufsize, flags=None):
-        if flags:
-            raise NotImplementedError("flags not supported")
-        else:
-            # From `python.org`, calling recv() without flags
-            # is equivalent to read().
-            # XXX Handle timeout?
+    def recv(self, size_t bufsize, flags=0):
+        # XXX Handle timeout?
+        if not BUFFER:
             return self._buffer.read(bufsize)
-
-    def recvfrom(self, bufsize, flags=None):
-        ...
-
-    def recvfrom_into(self, buffer, nbytes=None, flags=None):
-        ...
-
-    def recv_into(self, buffer, nbytes=None, flags=None):
-        ...
-
-    def send(self, const unsigned char[:] message, flags=None):
-        if flags:
-            raise NotImplementedError("flags not supported")
         else:
-            # From `python.org`, calling send() without flags
-            # is equivalent to write()
-            return self._buffer.write(message)
+            self._buffer.receive_from_network(
+                self._socket.recv(bufsize, flags))
 
-    def sendall(self, string, flags=None):
+            self._buffer.read(self._socket.recv(bufsize, flags))
+            return self._buffer.buffer()
+
+    def recvfrom(self, bufsize, flags=0):
+        ...
+
+    def recvfrom_into(self, buffer, nbytes=None, flags=0):
+        ...
+
+    def recv_into(self, buffer, nbytes=None, flags=0):
+        ...
+
+    def send(self, const unsigned char[:] message, flags=0):
+        if not BUFFER:
+            return self._buffer.write(message)
+        else:
+            self._buffer.write(message)
+            return self._socket.send(self._buffer._buffer(), flags)
+
+    def sendall(self, string, flags=0):
         ...
 
     def sendto(self, string, address):

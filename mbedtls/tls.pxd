@@ -311,11 +311,22 @@ cdef class _BaseContext:
     cdef mbedtls_ssl_context _ctx
     cdef TLSConfiguration _conf
     cpdef _reset(self)
-    cpdef _read_buffer(self, unsigned char[:] buffer, size_t amt)
+
+
+cdef struct _TLSBuffer:
+    # FIXME I should just use PyBuffer
+    #       cython has special methods for that kind of things:
+    #       `__getbuffer__` and `__releasebuffer__`.
+    #       There are difference between Python 2 and Python 3.
+    unsigned char *buf
+    size_t len
 
 
 cdef class TLSWrappedBuffer:
     cdef _BaseContext _context
+    cdef _TLSBuffer _buf
+    cdef void _set_bio(self)
+    cdef _buffer(self)
 
 
 cdef class TLSWrappedSocket:
