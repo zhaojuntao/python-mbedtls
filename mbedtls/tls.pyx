@@ -850,6 +850,7 @@ cdef class TLSWrappedSocket:
 
     def close(self):
         # XXX _reset()
+        self.context.shutdown()
         self._socket.close()
 
     def connect(self, address):

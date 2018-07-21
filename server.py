@@ -26,16 +26,13 @@ def main(host, port):
         # highest_supported_version=TLSVersion.MINIMUM_SUPPORTED,
         trust_store=store,
         validate_certificates=False)
-    print(conf)
 
     ctx = ServerContext(conf)
     assert ctx._purpose is Purpose.SERVER_AUTH, ctx._purpose
-    print(ctx)
 
     sock = ctx.wrap_socket(
         socket.socket(socket.AF_INET, socket.SOCK_STREAM))
     assert isinstance(sock, TLSWrappedSocket)
-    print(sock)
 
     print("binding to %r:%i" % (host, port))
     sock.bind((host, port))

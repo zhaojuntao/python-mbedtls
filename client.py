@@ -28,11 +28,6 @@ def main(host, port):
 
     sock.connect((host, port))
     sock.do_handshake()
-    # while True:
-    #     state = sock.context._do_handshake_step()
-    #     print("  .", state)
-    #     if state == 16:
-    #         break
     print("  . Handshake OK")
 
     request = b"GET / HTTP/1.0\r\n\r\n"
