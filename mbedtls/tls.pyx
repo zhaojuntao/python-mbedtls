@@ -96,6 +96,28 @@ class TLSVersion(IntEnum):
     MAXIMUM_SUPPORTED = _tls.MBEDTLS_SSL_MINOR_VERSION_3
 
 
+class HandshakeStep(IntEnum):
+    HELLO_REQUEST = _tls.MBEDTLS_SSL_HELLO_REQUEST
+    CLIENT_HELLO = _tls.MBEDTLS_SSL_CLIENT_HELLO
+    SERVER_HELLO = _tls.MBEDTLS_SSL_SERVER_HELLO
+    SERVER_CERTIFICATE = _tls.MBEDTLS_SSL_SERVER_CERTIFICATE
+    SERVER_KEY_EXCHANGE = _tls.MBEDTLS_SSL_SERVER_KEY_EXCHANGE
+    CERTIFICATE_REQUEST = _tls.MBEDTLS_SSL_CERTIFICATE_REQUEST
+    SERVER_HELLO_DONE = _tls.MBEDTLS_SSL_SERVER_HELLO_DONE
+    CLIENT_CERTIFICATE = _tls.MBEDTLS_SSL_CLIENT_CERTIFICATE
+    CLIENT_KEY_EXCHANGE = _tls.MBEDTLS_SSL_CLIENT_KEY_EXCHANGE
+    CERTIFICATE_VERIFY = _tls.MBEDTLS_SSL_CERTIFICATE_VERIFY
+    CLIENT_CHANGE_CIPHER_SPEC = _tls.MBEDTLS_SSL_CLIENT_CHANGE_CIPHER_SPEC
+    CLIENT_FINISHED = _tls.MBEDTLS_SSL_CLIENT_FINISHED
+    SERVER_CHANGE_CIPHER_SPEC = _tls.MBEDTLS_SSL_SERVER_CHANGE_CIPHER_SPEC
+    SERVER_FINISHED = _tls.MBEDTLS_SSL_SERVER_FINISHED
+    FLUSH_BUFFERS = _tls.MBEDTLS_SSL_FLUSH_BUFFERS
+    HANDSHAKE_WRAPUP = _tls.MBEDTLS_SSL_HANDSHAKE_WRAPUP
+    HANDSHAKE_OVER = _tls.MBEDTLS_SSL_HANDSHAKE_OVER
+    SERVER_NEW_SESSION_TICKET = _tls.MBEDTLS_SSL_SERVER_NEW_SESSION_TICKET
+    SERVER_HELLO_VERIFY_REQUEST_SENT = _tls.MBEDTLS_SSL_SERVER_HELLO_VERIFY_REQUEST_SENT
+
+
 PEM_HEADER = "-----BEGIN CERTIFICATE-----"
 PEM_FOOTER = "-----END CERTIFICATE-----"
 
@@ -167,6 +189,11 @@ cdef class TLSConfiguration:
             highest_supported_version=None,
             trust_store=None,
             sni_callback=None):
+        check_error(_tls.mbedtls_ssl_config_defaults(
+            &self._ctx,
+            endpoint=0,  # XXX server / client is not known here...
+            transport=_tls.MBEDTLS_SSL_TRANSPORT_STREAM,
+            preset=_tls.MBEDTLS_SSL_PRESET_DEFAULT))
 
         # Keep the object alive.
         self._trust_store = trust_store
@@ -227,30 +254,6 @@ cdef class TLSConfiguration:
                    self.highest_supported_version,
                    self.trust_store,
                    self.sni_callback))
-
-    @classmethod
-    def _create_default_context(cls, purpose=Purpose.SERVER_AUTH,
-                                cafile=None, capath=None, cadata=None):
-        """Create a default context.
-
-        Args:
-            purpose (Purpose): SERVER_AUTH or CLIENT_AUTH
-
-        """
-        # XXX This is a free function in the std lib `ssl`.
-        # XXX Handle cafile, capath, cadata.
-        # XXX FIXME XXX This does not return a context!
-        if not isinstance(purpose, Purpose):
-            raise TypeError(purpose)
-        # XXX TLS / DTLS: This should come from the socket config.
-        cdef int transport = _tls.MBEDTLS_SSL_TRANSPORT_STREAM
-        cdef TLSConfiguration self = cls()
-        check_error(_tls.mbedtls_ssl_config_defaults(
-            &self._ctx,
-            purpose,
-            transport,
-            _tls.MBEDTLS_SSL_PRESET_DEFAULT))
-        return self
 
     cdef _set_validate_certificates(self, validate):
         """Set the certificate verification mode.
@@ -505,7 +508,7 @@ cdef class _BaseContext:
         configuration (TLSConfiguration): The configuration.
 
     """
-    def __init__(self, TLSConfiguration configuration):
+    def __init__(self, TLSConfiguration configuration not None):
         self._conf = configuration
         check_error(_tls.mbedtls_ssl_setup(&self._ctx, &self._conf._ctx))
 
@@ -521,6 +524,10 @@ cdef class _BaseContext:
     def configuration(self):
         # PEP 543
         return self._conf
+
+    @property
+    def _purpose(self):
+        return Purpose(self._conf._ctx.endpoint)
 
     cpdef _reset(self):
         check_error(_tls.mbedtls_ssl_session_reset(&self._ctx))
@@ -591,12 +598,13 @@ cdef class _BaseContext:
         return name.decode("ascii"), ssl_version, secret_bits
 
     @property
-    def state(self):
-        return self._ctx.state
+    def _state(self):
+        return HandshakeStep(self._ctx.state)
 
     def _do_handshake_step(self):
         check_error(_tls.mbedtls_ssl_handshake_step(&self._ctx))
-        return self.state != 16  # MBEDTLS_SSL_HANDSHAKE_OVER
+        return self._state
+        # return self._state != 16  # MBEDTLS_SSL_HANDSHAKE_OVER
 
     def do_handshake(self):
         """Start the SSL/TLS handshake."""
@@ -638,7 +646,7 @@ cdef class _BaseContext:
 cdef class ClientContext(_BaseContext):
     # _pep543.ClientContext
 
-    def __init__(self, TLSConfiguration configuration):
+    def __init__(self, TLSConfiguration configuration not None):
         _tls.mbedtls_ssl_conf_endpoint(
             &configuration._ctx, _tls.MBEDTLS_SSL_IS_CLIENT)
         super(ClientContext, self).__init__(configuration)

@@ -21,15 +21,14 @@ def main(host, port):
     with open("srv.key", "rt") as k:
         key.from_PEM(k.read())
 
-    conf = TLSConfiguration._create_default_context(
-        purpose=Purpose.SERVER_AUTH,
-    ).update(
+    conf = TLSConfiguration(
         certificate_chain=([cert], key),
-        trust_store=store,
+        # trust_store=store,
         validate_certificates=False)
     print(conf)
 
     ctx = ServerContext(conf)
+    assert ctx._purpose is Purpose.SERVER_AUTH, ctx._purpose
     print(ctx)
 
     sock = ctx.wrap_socket(
@@ -45,10 +44,13 @@ def main(host, port):
     cli, address = sock.accept()
     print(cli, address)
 
-    print("HS", cli.context.state)
+    print(cli.context._state)
     # cli.do_handshake()
-    while cli.context._do_handshake_step():
-        print(".", cli.context.state)
+    while True:
+        state = cli.context._do_handshake_step()
+        print(".", state)
+        if state == 16:
+            break
 
 
 if __name__ == "__main__":
