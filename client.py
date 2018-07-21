@@ -26,9 +26,17 @@ def main(host, port):
         server_hostname="localhost")
     assert isinstance(sock, TLSWrappedSocket)
 
+    print("  . TLS Version: ", sock.negotiated_tls_version())
+    print("  . protocol: ", sock.negotiated_protocol())
+    print("  . cipher: ", sock.cipher())
+
     sock.connect((host, port))
     sock.do_handshake()
+
     print("  . Handshake OK")
+    print("  . TLS Version: ", sock.negotiated_tls_version())
+    print("  . protocol: ", sock.negotiated_protocol())
+    print("  . cipher: ", sock.cipher())
 
     request = b"GET / HTTP/1.0\r\n\r\n"
     print("  > write to server:", request)

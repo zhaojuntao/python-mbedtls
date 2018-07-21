@@ -645,9 +645,18 @@ cdef class _BaseContext:
         return None
 
     def version(self):
+        # Strings from `ssl_tls.c`.
+        # DTLS:
+        #   "DTLSv1.0"
+        #   "DTLSv1.2"
+        #   "unknown (DTLS)"
         return {
             "SSLv3.0": TLSVersion.SSLv3,
-        }[_tls.mbedtls_ssl_get_version(&self._ctx).decode("ascii")]
+            "TLSv1.0": TLSVersion.TLSv1,
+            "TLSv1.1": TLSVersion.TLSv1_1,
+            "TLSv1.2": TLSVersion.TLSv1_2,
+        }.get(_tls.mbedtls_ssl_get_version(&self._ctx).decode("ascii"),
+              "unknown")
 
 
 cdef class ClientContext(_BaseContext):
@@ -739,8 +748,11 @@ cdef class TLSWrappedBuffer:
         self.context.do_handshake()
 
     def cipher(self):
-        # XXX Should return enum or string.
-        return self.context.cipher()[0]
+        cipher = self.context.cipher()
+        if cipher is None:
+            return cipher
+        else:
+            return cipher[0]
 
     def negotiated_protocol(self):
         return self.context.selected_alpn_protocol()
@@ -754,7 +766,7 @@ cdef class TLSWrappedBuffer:
         return self.context.version()
 
     def shutdown(self):
-        ...
+        self._context._reset()
 
     def receive_from_network(self, data):
         ...
@@ -849,8 +861,7 @@ cdef class TLSWrappedSocket:
                 &self._ctx, host, port, self._proto))
 
     def close(self):
-        # XXX _reset()
-        self.context.shutdown()
+        self._buffer.shutdown()
         self._socket.close()
 
     def connect(self, address):
@@ -962,17 +973,18 @@ cdef class TLSWrappedSocket:
         self.context.do_handshake()
 
     def cipher(self):
-        return self.context.cipher()[0]
+        return self._buffer.cipher()
 
     def negotiated_protocol(self):
         return self._buffer.negotiated_protocol()
 
     @property
     def context(self):
-        return self._buffer._context
+        return self._buffer.context
 
     def negotiated_tls_version(self):
-        return self._buffer.version()
+        return self._buffer.negotiated_tls_version()
 
     def unwrap(self):
+        self._socket.close()
         return self._socket
