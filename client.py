@@ -17,26 +17,29 @@ def main(host, port):
         trust_store=store,
         validate_certificates=False,
     )
-    print(conf)
 
     ctx = ClientContext(conf)
     assert ctx._purpose is Purpose.CLIENT_AUTH, ctx._purpose
-    print(ctx)
 
     sock = ctx.wrap_socket(
         socket.socket(socket.AF_INET, socket.SOCK_STREAM),
         server_hostname="localhost")
     assert isinstance(sock, TLSWrappedSocket)
-    print(sock)
 
     sock.connect((host, port))
-    print(sock.context._state)
-    # sock.do_handshake()
-    while True:
-        state = sock.context._do_handshake_step()
-        print(".", state)
-        if state == 16:
-            break
+    sock.do_handshake()
+    # while True:
+    #     state = sock.context._do_handshake_step()
+    #     print("  .", state)
+    #     if state == 16:
+    #         break
+    print("  . Handshake OK")
+
+    request = b"GET / HTTP/1.0\r\n\r\n"
+    print("  > write to server:", request)
+    sock.send(request)
+    print(sock.recv(150))
+    sock.close()
 
 
 if __name__ == "__main__":

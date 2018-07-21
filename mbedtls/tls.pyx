@@ -907,18 +907,25 @@ cdef class TLSWrappedSocket:
         if not buffer:
             raise MemoryError()
         try:
-            if self.gettimeout():
-                sz = check_error(_net.mbedtls_net_recv_timeout(
-                    &self._ctx,
-                    &buffer[0],
-                    bufsize,
-                    int(self._timeout)))
-            else:
-                sz = check_error(_net.mbedtls_net_recv(
-                    &self._ctx,
-                    &buffer[0],
-                    bufsize))
-            return bytes(buffer[:sz])
+            while True:
+                if self.gettimeout():
+                    ret = check_error(_net.mbedtls_net_recv_timeout(
+                        &self._ctx, &buffer[0], bufsize, int(self._timeout)))
+                else:
+                    ret = check_error(_net.mbedtls_net_recv(
+                        &self._ctx, &buffer[0], bufsize))
+
+                if ret >= 0:
+                    return bytes(buffer[:ret])
+                elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
+                             _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
+                    continue
+                elif ret is _tls.MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
+                    break
+                elif ret is _tls.MBEDTLS_ERR_NET_CONN_RESET:
+                    break
+                else:
+                    check_error(ret)
         finally:
             free(buffer)
 
@@ -934,10 +941,18 @@ cdef class TLSWrappedSocket:
     def send(self, const unsigned char[:] message, flags=0):
         if flags:
             raise NotImplementedError("flags not supported")
-        sz = check_error(_net.mbedtls_net_send(
-            &self._ctx,
-            &message[0],
-            message.size))
+        while True:
+            ret = check_error(_net.mbedtls_net_send(
+                &self._ctx, &message[0], message.size))
+            if ret >= 0:
+                return ret
+            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
+                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
+                continue
+            elif ret is _tls.MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
+                break
+            else:
+                check_error(ret)
 
     def sendall(self, string, flags=None):
         ...
