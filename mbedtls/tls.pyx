@@ -33,24 +33,24 @@ cdef _random.Random __rng = _random.Random()
 
 
 cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
-    ctx_ = <_tls._TLSBuffer*>ctx
-    ctx_.buf = <unsigned char *>realloc(
-        ctx_.buf, len * sizeof(unsigned char))
-    ctx_.len = len
-    if not ctx_.buf:
+    ctx_ = <_tls._IOContext *>ctx
+    ctx_.output.buf = <unsigned char *>realloc(
+        ctx_.output.buf, len * sizeof(unsigned char))
+    ctx_.output.len = len
+    if not ctx_.output.buf:
         return -1  # XXX
-    memcpy(ctx_.buf, buf, len)
+    memcpy(ctx_.output.buf, buf, len)
     return 0
 
 
 cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
-    ctx_ = <_tls._TLSBuffer*>ctx
-    ctx_.buf = <unsigned char *>realloc(
-        ctx_.buf, len * sizeof(unsigned char))
-    ctx_.len = len
-    if not ctx_.buf:
+    ctx_ = <_tls._IOContext *>ctx
+    ctx_.input.buf = <unsigned char *>realloc(
+        ctx_.input.buf, len * sizeof(unsigned char))
+    ctx_.input.len = len
+    if not ctx_.input.buf:
         return -1
-    memcpy(ctx_.buf, buf, len)
+    memcpy(ctx_.input.buf, buf, len)
     return 0
 
 
@@ -754,13 +754,8 @@ cdef class TLSWrappedBuffer:
 
     def __dealloc__(self):
         # XXX Use PyBuffer!
-        free(self._buf.buf)
         free(self._ctx.input.buf)
         free(self._ctx.output.buf)
-
-    cdef _buffer(self):
-        # XXX Use PyBuffer!
-        return bytes(self._buf.buf[:self._buf.len])
 
     cdef _input(self):
         return bytes(self._ctx.input.buf[:self._ctx.input.len])
@@ -772,26 +767,23 @@ cdef class TLSWrappedBuffer:
         if BUFFER:
             _tls.mbedtls_ssl_set_bio(
                 &self._context._ctx,
-                &self._buf,
+                &self._ctx,
                 buffer_send,
                 buffer_recv,
                 NULL)
 
     def read(self, amt):
         # PEP 543
-        self._set_bio()
         buffer = bytearray(amt)
         amt = self.readinto(buffer, amt)
         return bytes(buffer[:amt])
 
     def readinto(self, buffer, amt):
         # PEP 543
-        self._set_bio()
         return self.context._readinto(buffer, amt)
 
     def write(self, buf):
         # PEP 543
-        self._set_bio()
         self.context._write(buf)
 
     def do_handshake(self):
@@ -850,7 +842,6 @@ cdef class TLSWrappedSocket:
         if socket is not None and socket.fileno() != -1:
             # Implementation detail.
             self._ctx.fd = socket.fileno()
-            self._set_bio()
 
     def __cinit__(self):
         _net.mbedtls_net_init(&self._ctx)
@@ -859,13 +850,11 @@ cdef class TLSWrappedSocket:
         _net.mbedtls_net_free(&self._ctx)
 
     def __str__(self):
-        return "<%s fd=%i, family=%s, type=%s, proto=%i, laddr=%r>" % (
-            type(self).__name__, self.fileno(),
-            self.family, self.type, self.proto, "")
+        return str(self._socket)
 
     def show(self):
         # XXX DELETE ME
-        return self._buffer._buffer()
+        return self._buffer._input(), self._buffer._output()
 
     cdef void _set_bio(self):
         _tls.mbedtls_ssl_set_bio(
@@ -914,7 +903,6 @@ cdef class TLSWrappedSocket:
                 fileno=cli._ctx.fd,
             )
             assert cli._socket.fileno() == cli._ctx.fd
-            cli._set_bio()
             return cli, ip_address(bytes(buffer[:ip_sz]))
         finally:
             free(buffer)
@@ -1023,7 +1011,9 @@ cdef class TLSWrappedSocket:
     # PEP 543 adds the following methods.
 
     def do_handshake(self):
+        self._set_bio()
         self._buffer.do_handshake()
+        self._buffer._set_bio()
 
     def cipher(self):
         return self._buffer.cipher()
