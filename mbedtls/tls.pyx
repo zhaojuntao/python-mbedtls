@@ -749,13 +749,24 @@ cdef class TLSWrappedBuffer:
     def __init__(self, _BaseContext context):
         self._context = context
 
+    def __cinit__(self):
+        pass
+
     def __dealloc__(self):
         # XXX Use PyBuffer!
         free(self._buf.buf)
+        free(self._ctx.input.buf)
+        free(self._ctx.output.buf)
 
     cdef _buffer(self):
         # XXX Use PyBuffer!
         return bytes(self._buf.buf[:self._buf.len])
+
+    cdef _input(self):
+        return bytes(self._ctx.input.buf[:self._ctx.input.len])
+
+    cdef _output(self):
+        return bytes(self._ctx.output.buf[:self._ctx.output.len])
 
     cdef void _set_bio(self):
         if BUFFER:
@@ -815,14 +826,17 @@ cdef class TLSWrappedBuffer:
 
     def receive_from_network(self, data):
         # PEP 543
+        # Append to data to input buffer.
         ...
 
     def peek_outgoing(self, amt):
         # PEP 543
-        ...
+        # Read from output buffer.
+        return bytes(self._ctx.output.buf[:min(amt, self._ctx.output.len)])
 
     def consume_outgoing(self, amt):
         # PEP 543
+        # Remove up to `amt` from `output`.
         ...
 
 
@@ -958,9 +972,10 @@ cdef class TLSWrappedSocket:
         else:
             self._buffer.receive_from_network(
                 self._socket.recv(bufsize, flags))
-
-            self._buffer.read(self._socket.recv(bufsize, flags))
-            return self._buffer.buffer()
+            # XXX Crypted and encrypted may not have the same size.
+            # XXX It is possible that we need to buffer more from
+            # XXX the network than `bufsize`.
+            return self._buffer.read(bufsize)
 
     def recvfrom(self, bufsize, flags=0):
         ...
@@ -976,7 +991,9 @@ cdef class TLSWrappedSocket:
             return self._buffer.write(message)
         else:
             self._buffer.write(message)
-            return self._socket.send(self._buffer._buffer(), flags)
+            amt = self._socket.send(self._buffer._output(), flags)
+            self._buffer.consume_outgoing(amt)
+            return amt
 
     def sendall(self, string, flags=0):
         ...
@@ -988,13 +1005,7 @@ cdef class TLSWrappedSocket:
         ...
 
     def setblocking(self, flag):
-        if not isinstance(flag, int):
-            raise TypeError("an integer is required (got type %s)"
-                            % type(flag))
-        if flag:
-            check_error(_net.mbedtls_net_set_block(&self._ctx))
-        else:
-            check_error(_net.mbedtls_net_set_nonblock(&self._ctx))
+        self._socket.setblocking(flag)
 
     def settimeout(self, value):
         self._socket.settimeout(value)
@@ -1006,7 +1017,6 @@ cdef class TLSWrappedSocket:
         self._socket.setsockopt(level, optname, value)
 
     def shutdown(self, how):
-        # XXX
         self._buffer.shutdown()
         self._socket.shutdown(how)
 
@@ -1029,5 +1039,5 @@ cdef class TLSWrappedSocket:
         return self._buffer.negotiated_tls_version()
 
     def unwrap(self):
-        self._socket.close()
+        self.shutdown(_socket.SHUT_RDWR)
         return self._socket

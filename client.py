@@ -4,8 +4,7 @@ from mbedtls.x509 import Certificate
 from mbedtls.tls import *
 
 
-HOST = None  # "localhost"
-# PORT = 50007
+HOST = "localhost"
 PORT = 4433
 
 
