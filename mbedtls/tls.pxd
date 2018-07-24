@@ -313,6 +313,10 @@ cdef class _BaseContext:
     cpdef _reset(self)
 
 
+cdef enum:
+    TLS_BUFFER_CAPACITY = 4096
+
+
 cdef struct _TLSBuffer:
     # FIXME I should just use PyBuffer
     #       cython has special methods for that kind of things:
@@ -331,8 +335,8 @@ cdef class TLSWrappedBuffer:
     cdef _BaseContext _context
     cdef _IOContext _ctx
     cdef void _set_bio(self)
-    cdef _output(self)
     cdef _input(self)
+    cdef _output(self)
 
 
 cdef class TLSWrappedSocket:

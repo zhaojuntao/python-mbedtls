@@ -5,7 +5,7 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-BUFFER = False
+BUFFER = True
 
 
 from libc.stdlib cimport malloc, realloc, free
@@ -33,24 +33,18 @@ cdef _random.Random __rng = _random.Random()
 
 
 cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
+    assert len < _tls.TLS_BUFFER_CAPACITY
+    print("\n\tsend/output %r [%i]\n" % (bytes(buf[:len]), len))
     ctx_ = <_tls._IOContext *>ctx
-    ctx_.output.buf = <unsigned char *>realloc(
-        ctx_.output.buf, len * sizeof(unsigned char))
-    ctx_.output.len = len
-    if not ctx_.output.buf:
-        return -1  # XXX
     memcpy(ctx_.output.buf, buf, len)
+    ctx_.output.len = len
     return 0
 
 
 cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
+    assert len < _tls.TLS_BUFFER_CAPACITY
+    print("\n\trecv/input %r [%i]\n" % (bytes(buf[:len]), len))
     ctx_ = <_tls._IOContext *>ctx
-    ctx_.input.buf = <unsigned char *>realloc(
-        ctx_.input.buf, len * sizeof(unsigned char))
-    ctx_.input.len = len
-    if not ctx_.input.buf:
-        return -1
-    memcpy(ctx_.input.buf, buf, len)
     return 0
 
 
@@ -577,9 +571,11 @@ cdef class _BaseContext:
                 check_error(ret)
 
     def _write(self, const unsigned char[:] buffer):
+        print("\n\t_write %r" % bytes(buffer))
         while True:
             ret = _tls.mbedtls_ssl_write(
                 &self._ctx, &buffer[0], buffer.shape[0])
+            print("\n\t_write %i" % ret)
             if ret >= 0:
                 return ret
             elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
@@ -750,7 +746,17 @@ cdef class TLSWrappedBuffer:
         self._context = context
 
     def __cinit__(self):
-        pass
+        self._ctx.input.len = 0
+        self._ctx.input.buf = <unsigned char *>malloc(
+            _tls.TLS_BUFFER_CAPACITY * sizeof(unsigned char))
+        if not self._ctx.input.buf:
+            raise MemoryError()
+
+        self._ctx.output.len = 0
+        self._ctx.output.buf = <unsigned char *>malloc(
+            _tls.TLS_BUFFER_CAPACITY * sizeof(unsigned char))
+        if not self._ctx.output.buf:
+            raise MemoryError()
 
     def __dealloc__(self):
         # XXX Use PyBuffer!
@@ -758,10 +764,12 @@ cdef class TLSWrappedBuffer:
         free(self._ctx.output.buf)
 
     cdef _input(self):
-        return bytes(self._ctx.input.buf[:self._ctx.input.len])
+        len = self._ctx.input.len
+        return bytes(self._ctx.input.buf[:len]), len
 
     cdef _output(self):
-        return bytes(self._ctx.output.buf[:self._ctx.output.len])
+        len = self._ctx.output.len
+        return bytes(self._ctx.output.buf[:len]), len
 
     cdef void _set_bio(self):
         if BUFFER:
@@ -772,19 +780,32 @@ cdef class TLSWrappedBuffer:
                 buffer_recv,
                 NULL)
 
-    def read(self, amt):
+    def read(self, size_t amt):
         # PEP 543
-        buffer = bytearray(amt)
+        # XXX loop if len < amt and there is something to read
+        # XXX on the network.
+        if not amt:
+            return b""
+        # XXX FIXME Memory!
+        buffer = bytearray(_tls.TLS_BUFFER_CAPACITY)
         amt = self.readinto(buffer, amt)
         return bytes(buffer[:amt])
 
-    def readinto(self, buffer, amt):
+    def readinto(self, buffer, size_t amt):
         # PEP 543
-        return self.context._readinto(buffer, amt)
+        if not amt:
+            return 0
+        start = self._ctx.input.len
+        amt = self.context._readinto(buffer, amt)
+        assert amt == buffer.size
+        return self._ctx.input.len - start
 
-    def write(self, buf):
+    def write(self, const unsigned char[:] buffer):
         # PEP 543
-        self.context._write(buf)
+        start = self._ctx.output.len
+        amt = self.context._write(buffer)
+        assert amt == buffer.size
+        return self._ctx.output.len - start
 
     def do_handshake(self):
         # PEP 543
@@ -816,10 +837,17 @@ cdef class TLSWrappedBuffer:
         # PEP 543
         self._context._reset()
 
-    def receive_from_network(self, data):
+    def receive_from_network(self, const unsigned char[:] data not None):
+        print("\n\treceive_from_network: %r [%i]" % (bytes(data), data.size))
         # PEP 543
         # Append to data to input buffer.
-        ...
+        # XXX Will only works the first time!
+        # XXX Probably need a ring buffer for the general case.
+        if not data.size:
+            return
+        assert data.size < _tls.TLS_BUFFER_CAPACITY
+        memcpy(self._ctx.input.buf, &data[0], data.size)
+        self._ctx.input.len = data.size
 
     def peek_outgoing(self, amt):
         # PEP 543
@@ -829,6 +857,8 @@ cdef class TLSWrappedBuffer:
     def consume_outgoing(self, amt):
         # PEP 543
         # Remove up to `amt` from `output`.
+        # self._ctx.output.len -= amt
+        # should probably remove from the start of a ring buffer.
         ...
 
 
@@ -836,12 +866,12 @@ cdef class TLSWrappedSocket:
     # _pep543.TLSWrappedSocket
     def __init__(self, socket, TLSWrappedBuffer buffer):
         super().__init__()
-        self._socket = socket
-        self._buffer = buffer
-        self._proto = _net.MBEDTLS_NET_PROTO_TCP
         if socket is not None and socket.fileno() != -1:
             # Implementation detail.
             self._ctx.fd = socket.fileno()
+        self._socket = socket
+        self._buffer = buffer
+        self._proto = _net.MBEDTLS_NET_PROTO_TCP
 
     def __cinit__(self):
         _net.mbedtls_net_init(&self._ctx)
@@ -854,7 +884,9 @@ cdef class TLSWrappedSocket:
 
     def show(self):
         # XXX DELETE ME
-        return self._buffer._input(), self._buffer._output()
+        return (self._buffer._input(),
+                self._buffer._output(),
+                self._buffer.peek_outgoing(4096))
 
     cdef void _set_bio(self):
         _tls.mbedtls_ssl_set_bio(
@@ -903,6 +935,7 @@ cdef class TLSWrappedSocket:
                 fileno=cli._ctx.fd,
             )
             assert cli._socket.fileno() == cli._ctx.fd
+            print("accept:\n\t%r\n->\n\t%r" % (self._socket, cli._socket))
             return cli, ip_address(bytes(buffer[:ip_sz]))
         finally:
             free(buffer)
@@ -932,6 +965,7 @@ cdef class TLSWrappedSocket:
             host = host.encode("ascii")
             check_error(_net.mbedtls_net_connect(
                 &self._ctx, host, port, self._proto))
+        print("connect:\n\t%r" % self._socket)
 
     def connect_ex(self, address):
         self._socket.connect_ex(address)
@@ -958,12 +992,14 @@ cdef class TLSWrappedSocket:
         if not BUFFER:
             return self._buffer.read(bufsize)
         else:
-            self._buffer.receive_from_network(
-                self._socket.recv(bufsize, flags))
+            print("\n\trecv: %i" % bufsize)
+            data = self._socket.recv(bufsize, flags)
+            print("\trecv: %r" % data)
+            self._buffer.receive_from_network(data)
             # XXX Crypted and encrypted may not have the same size.
             # XXX It is possible that we need to buffer more from
             # XXX the network than `bufsize`.
-            return self._buffer.read(bufsize)
+            return self._buffer.read(self._buffer._ctx.input.len)
 
     def recvfrom(self, bufsize, flags=0):
         ...
@@ -978,9 +1014,16 @@ cdef class TLSWrappedSocket:
         if not BUFFER:
             return self._buffer.write(message)
         else:
-            self._buffer.write(message)
-            amt = self._socket.send(self._buffer._output(), flags)
-            self._buffer.consume_outgoing(amt)
+            print("\n\tsend: %r" % bytes(message))
+            amt = self._buffer.write(message)
+            print("\n\tsend: >> %i / %i <<"
+                  % (amt, self._buffer._ctx.output.len))
+            print("\n\tsend:\n\t\t%r" % self._socket)
+            encrypted = self._buffer.peek_outgoing(amt)
+            print("\n\tencrypted: %r" % bytes(encrypted))
+            sent = self._socket.send(encrypted, flags)
+            print("\n\tsend: [%i]" % sent)
+            self._buffer.consume_outgoing(sent)
             return amt
 
     def sendall(self, string, flags=0):
