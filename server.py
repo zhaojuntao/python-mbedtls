@@ -7,7 +7,7 @@ from mbedtls.pk import RSA
 from mbedtls.x509 import Certificate
 from mbedtls.tls import *
 
-HOST = "localhost"
+HOST = None  # "localhost"
 PORT = 4433
 
 
