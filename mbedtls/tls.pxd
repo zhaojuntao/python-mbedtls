@@ -326,22 +326,22 @@ cdef struct _TLSBuffer:
     size_t len
 
 
-cdef struct _IOContext:
-    _TLSBuffer input
-    _TLSBuffer output
-
-
 cdef class TLSWrappedBuffer:
     cdef _BaseContext _context
-    cdef _IOContext _ctx
-    cdef void _set_bio(self)
-    cdef _input(self)
-    cdef _output(self)
+    cdef _TLSBuffer _ctx
+
+
+cdef class _IOContext:
+    cdef _TLSBuffer* _input
+    cdef _TLSBuffer* _output
 
 
 cdef class TLSWrappedSocket:
     cdef _net.mbedtls_net_context _ctx
-    cdef TLSWrappedBuffer _buffer
-    cdef void _set_bio(self)
+    cdef _IOContext _buffers
+    cdef TLSWrappedBuffer _input
+    cdef TLSWrappedBuffer _output
+    cdef void _net_bio(self)
+    cdef void _buf_bio(self)
     cdef int _proto
     cdef _socket
