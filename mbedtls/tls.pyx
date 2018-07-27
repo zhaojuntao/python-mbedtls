@@ -749,27 +749,22 @@ cdef class TLSWrappedBuffer:
         self._context = context
 
     def __cinit__(self):
-        pass
+        self._buffer.len = 0
+        self._buffer.buf = <unsigned char *>malloc(
+            _tls.TLS_BUFFER_CAPACITY * sizeof(unsigned char))
+        if not self._buffer.buf:
+            raise MemoryError()
 
     def __dealloc__(self):
         # XXX Use PyBuffer!
-        free(self._ctx.input.buf)
-        free(self._ctx.output.buf)
+        free(self._buffer.buf)
+        self._buffer.len = 0
 
-    cdef _input(self):
-        return bytes(self._ctx.input.buf[:self._ctx.input.len])
+    def __repr__(self):
+        return "%s(%r)" % (type(self).__name__, self.context)
 
-    cdef _output(self):
-        return bytes(self._ctx.output.buf[:self._ctx.output.len])
-
-    cdef void _buf_bio(self):
-        if BUFFER:
-            _tls.mbedtls_ssl_set_bio(
-                &self._context._ctx,
-                &self._ctx,
-                buffer_send,
-                buffer_recv,
-                NULL)
+    def __bytes__(self):
+        return self._buffer.buf[self._buffer.len]
 
     def read(self, amt):
         # PEP 543
@@ -821,7 +816,7 @@ cdef class TLSWrappedBuffer:
     def peek_outgoing(self, amt):
         # PEP 543
         # Read from output buffer.
-        return bytes(self._ctx.output.buf[:min(amt, self._ctx.output.len)])
+        return bytes(self._buffer.buf[:min(amt, self._buffer.len)])
 
     def consume_outgoing(self, amt):
         # PEP 543
@@ -834,7 +829,8 @@ cdef class TLSWrappedSocket:
     def __init__(self, socket, TLSWrappedBuffer buffer):
         super().__init__()
         self._socket = socket
-        self._buffer = buffer
+        self._input = buffer
+        self._output = buffer
         self._proto = _net.MBEDTLS_NET_PROTO_TCP
         if socket is not None and socket.fileno() != -1:
             # Implementation detail.
@@ -842,20 +838,33 @@ cdef class TLSWrappedSocket:
 
     def __cinit__(self):
         _net.mbedtls_net_init(&self._ctx)
+        self._buffers.input = &self._input._buffer
+        self._buffers.output = &self._output._buffer
 
     def __dealloc__(self):
         _net.mbedtls_net_free(&self._ctx)
+        self._buffers.input = NULL
+        self._buffers.output = NULL
 
     def __str__(self):
         return str(self._socket)
 
     cdef void _net_bio(self):
         _tls.mbedtls_ssl_set_bio(
-            &self._buffer._context._ctx,
+            &self._input._context._ctx,
             &self._ctx,
             _net.mbedtls_net_send,
             _net.mbedtls_net_recv,
             NULL)
+
+    cdef void _buf_bio(self):
+        if BUFFER:
+            _tls.mbedtls_ssl_set_bio(
+                &self._input._context._ctx,
+                &self._ctx,
+                buffer_send,
+                buffer_recv,
+                NULL)
 
     # PEP 543 requires the full socket API.
 
@@ -951,12 +960,12 @@ cdef class TLSWrappedSocket:
         if not BUFFER:
             return self.context._read(bufsize)
         else:
-            self._buffer.receive_from_network(
+            self._input.receive_from_network(
                 self._socket.recv(bufsize, flags))
             # XXX Crypted and encrypted may not have the same size.
             # XXX It is possible that we need to buffer more from
             # XXX the network than `bufsize`.
-            return self._buffer.read(bufsize)
+            return self._input.read(bufsize)
 
     def recvfrom(self, bufsize, flags=0):
         ...
@@ -969,10 +978,10 @@ cdef class TLSWrappedSocket:
 
     def send(self, const unsigned char[:] message, flags=0):
         if not BUFFER:
-            return self._buffer.write(message)
+            return self._output.write(message)
         else:
-            self._buffer.write(message)
-            amt = self._socket.send(self._buffer._output(), flags)
+            amt = self._output.write(message)
+            amt = self._socket.send(self._output.peek_outgoing(amt), flags)
             self._buffer.consume_outgoing(amt)
             return amt
 
@@ -1006,7 +1015,7 @@ cdef class TLSWrappedSocket:
     def do_handshake(self):
         self._net_bio()
         self.context._do_handshake()
-        self._buffer._buf_bio()
+        # self._buffer._buf_bio()
 
     def cipher(self):
         return self.context._cipher()
@@ -1016,7 +1025,7 @@ cdef class TLSWrappedSocket:
 
     @property
     def context(self):
-        return self._buffer.context
+        return self._input.context
 
     def negotiated_tls_version(self):
         return self.context._negotiated_tls_version()
