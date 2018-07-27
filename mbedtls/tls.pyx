@@ -565,11 +565,15 @@ cdef class _BaseContext:
         self._shutdown()
 
     def _read(self, size_t amt):
+        if not amt:
+            return b""
         buffer = bytearray(amt)
         amt = self._readinto(buffer, amt)
         return bytes(buffer[:amt])
 
     def _readinto(self, unsigned char[:] buffer, size_t amt):
+        if not amt:
+            return b""
         while True:
             ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
             if ret > 0:
@@ -706,15 +710,15 @@ cdef class ClientContext(_BaseContext):
                 dangerous and should not be the default behavior.
 
         """
-        buffer = self.wrap_buffers(server_hostname)
-        return TLSWrappedSocket(socket, buffer)
+        input, output = self.wrap_buffers(server_hostname)
+        return TLSWrappedSocket(socket, input, output)
 
     def wrap_buffers(self, server_hostname=None):
         """Create an in-memory stream for TLS."""
         # PEP 543
         if server_hostname is not None:
             self.set_hostname(server_hostname)
-        return TLSWrappedBuffer(self)
+        return TLSWrappedBuffer(self), TLSWrappedBuffer(self)
 
     def set_hostname(self, hostname):
         """Set the hostname to check against the received server."""
@@ -747,12 +751,12 @@ cdef class ServerContext(_BaseContext):
 
     def wrap_socket(self, socket):
         """Wrap an existing Python socket object ``socket``."""
-        buffer = self.wrap_buffers()
-        return TLSWrappedSocket(socket, buffer)
+        input, output = self.wrap_buffers()
+        return TLSWrappedSocket(socket, input, output)
 
     def wrap_buffers(self):
         # PEP 543
-        return TLSWrappedBuffer(self)
+        return TLSWrappedBuffer(self), TLSWrappedBuffer(self)
 
 
 cdef class TLSWrappedBuffer:
@@ -776,13 +780,13 @@ cdef class TLSWrappedBuffer:
         return "%s(%r)" % (type(self).__name__, self.context)
 
     def __bytes__(self):
-        return self._buffer.buf[self._buffer.len]
+        return bytes(self._buffer.buf[self._buffer.len])
 
-    def read(self, amt):
+    def read(self, size_t amt):
         # PEP 543
         return self.context._read(amt)
 
-    def readinto(self, buffer, amt):
+    def readinto(self, unsigned char[:] buffer, size_t amt):
         # PEP 543
         return self.context._readinto(buffer, amt)
 
@@ -820,29 +824,39 @@ cdef class TLSWrappedBuffer:
         # PEP 543
         self._context._shutdown()
 
-    def receive_from_network(self, const unsigned char[:] data):
+    def receive_from_network(self, const unsigned char[:] data not None):
         # PEP 543
         # Append to data to input buffer.
+        # XXX Ring buffer...
         assert data.size
+        if self._buffer.len + data.size > _tls.TLS_BUFFER_CAPACITY:
+            raise BufferError("Input buffer overflow")
 
-    def peek_outgoing(self, amt):
+        cdef size_t end = self._buffer.len * sizeof(unsigned char)
+        memcpy(&self._buffer.buf[end], &data[0], data.size)
+
+    def peek_outgoing(self, size_t amt):
         # PEP 543
         # Read from output buffer.
-        return bytes(self._buffer.buf[:min(amt, self._buffer.len)])
+        return bytes(self)[:amt]
 
-    def consume_outgoing(self, amt):
+    def consume_outgoing(self, size_t amt):
         # PEP 543
         # Remove up to `amt` from `output`.
-        ...
+        # XXX Ring buffer... -> move begin by `amt`
+        self._buffer.len = amt
 
 
 cdef class TLSWrappedSocket:
     # _pep543.TLSWrappedSocket
-    def __init__(self, socket, TLSWrappedBuffer buffer):
+    def __init__(self,
+                 socket,
+                 TLSWrappedBuffer input,
+                 TLSWrappedBuffer output):
         super().__init__()
         self._socket = socket
-        self._input = buffer
-        self._output = buffer
+        self._input = input
+        self._output = output
         self._proto = _net.MBEDTLS_NET_PROTO_TCP
         if socket is not None and socket.fileno() != -1:
             # Implementation detail.
@@ -886,10 +900,9 @@ cdef class TLSWrappedSocket:
         return self._socket.type
 
     def accept(self):
-        cdef TLSWrappedSocket cli = TLSWrappedSocket(
-            None,
-            ServerContext(self.context.configuration).wrap_buffers()
-        )
+        input, output = ServerContext(
+            self.context.configuration).wrap_buffers()
+        cdef TLSWrappedSocket cli = TLSWrappedSocket(None, input, output)
         cdef size_t sz = 256
         cdef size_t ip_sz
         cdef char* buffer = <char*>malloc(sz * sizeof(char))
