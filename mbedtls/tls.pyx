@@ -34,12 +34,24 @@ cdef _random.Random __rng = _random.Random()
 
 cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
     assert len <= _tls.TLS_BUFFER_CAPACITY
-    return 0
+    c_ctx = <_IOContext *>ctx
+    if not c_ctx.done_handshake:
+        print("SEND:HS")
+        return _net.mbedtls_net_send(ctx, buf, len)
+    else:
+        print("SEND:MSG")
+        return _net.mbedtls_net_send(ctx, buf, len)
 
 
 cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
     assert len <= _tls.TLS_BUFFER_CAPACITY
-    return 0
+    c_ctx = <_IOContext *>ctx
+    if not c_ctx.done_handshake:
+        print("RECV:HS")
+        return _net.mbedtls_net_recv(ctx, buf, len)
+    else:
+        print("SEND:MSG")
+        return _net.mbedtls_net_recv(ctx, buf, len)
 
 
 cdef void debug(
@@ -837,14 +849,16 @@ cdef class TLSWrappedSocket:
             self._ctx.fd = socket.fileno()
 
     def __cinit__(self):
-        _net.mbedtls_net_init(&self._ctx)
-        self._buffers.input = &self._input._buffer
-        self._buffers.output = &self._output._buffer
+        _net.mbedtls_net_init(<_net.mbedtls_net_context *>&self._ctx)
+        self._ctx.input = &self._input._buffer
+        self._ctx.output = &self._output._buffer
+        self._ctx.done_handshake = 0
 
     def __dealloc__(self):
-        _net.mbedtls_net_free(&self._ctx)
-        self._buffers.input = NULL
-        self._buffers.output = NULL
+        _net.mbedtls_net_free(<_net.mbedtls_net_context *>&self._ctx)
+        self._ctx.input = NULL
+        self._ctx.output = NULL
+        self._ctx.done_handshake = 0
 
     def __str__(self):
         return str(self._socket)
@@ -853,18 +867,9 @@ cdef class TLSWrappedSocket:
         _tls.mbedtls_ssl_set_bio(
             &self._input._context._ctx,
             &self._ctx,
-            _net.mbedtls_net_send,
-            _net.mbedtls_net_recv,
+            buffer_send,
+            buffer_recv,
             NULL)
-
-    cdef void _buf_bio(self):
-        if BUFFER:
-            _tls.mbedtls_ssl_set_bio(
-                &self._input._context._ctx,
-                &self._ctx,
-                buffer_send,
-                buffer_recv,
-                NULL)
 
     # PEP 543 requires the full socket API.
 
@@ -892,7 +897,9 @@ cdef class TLSWrappedSocket:
             raise MemoryError()
         try:
             check_error(_net.mbedtls_net_accept(
-                &self._ctx, &cli._ctx, &buffer[0], sz, &ip_sz))
+                <_net.mbedtls_net_context *>&self._ctx,
+                <_net.mbedtls_net_context *>&cli._ctx,
+                &buffer[0], sz, &ip_sz))
                 # XXX Example has NULL, 0, NULL for the server.
                 # &self._ctx, &cli._ctx, NULL, 0, NULL))
             cli._socket = _socket.socket(
@@ -914,13 +921,16 @@ cdef class TLSWrappedSocket:
         port = str(port).encode("ascii")
         if host is None:
             check_error(_net.mbedtls_net_bind(
-                &self._ctx, NULL, port, self._proto))
+                <_net.mbedtls_net_context *>&self._ctx,
+                NULL, port, self._proto))
         else:
             host = host.encode("ascii")
             check_error(_net.mbedtls_net_bind(
-                &self._ctx, host, port, self._proto))
+                <_net.mbedtls_net_context *>&self._ctx,
+                host, port, self._proto))
 
     def close(self):
+        self._ctx.done_handshake = 0
         self.context._close()
         self._socket.close()
 
@@ -929,11 +939,13 @@ cdef class TLSWrappedSocket:
         port = str(port).encode("ascii")
         if host is None:
             check_error(_net.mbedtls_net_connect(
-                &self._ctx, NULL, port, self._proto))
+                <_net.mbedtls_net_context *>&self._ctx,
+                NULL, port, self._proto))
         else:
             host = host.encode("ascii")
             check_error(_net.mbedtls_net_connect(
-                &self._ctx, host, port, self._proto))
+                <_net.mbedtls_net_context *>&self._ctx,
+                host, port, self._proto))
 
     def connect_ex(self, address):
         self._socket.connect_ex(address)
@@ -1013,9 +1025,10 @@ cdef class TLSWrappedSocket:
     # PEP 543 adds the following methods.
 
     def do_handshake(self):
+        self._ctx.done_handshake = 0
         self._net_bio()
         self.context._do_handshake()
-        # self._buffer._buf_bio()
+        self._ctx.done_handshake = 1
 
     def cipher(self):
         return self.context._cipher()

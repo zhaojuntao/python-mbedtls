@@ -330,6 +330,7 @@ cdef struct _IOContext:
     int fd
     _TLSBuffer *input
     _TLSBuffer *output
+    int done_handshake
 
 
 cdef class TLSWrappedBuffer:
@@ -338,11 +339,10 @@ cdef class TLSWrappedBuffer:
 
 
 cdef class TLSWrappedSocket:
-    cdef _net.mbedtls_net_context _ctx
+    # cdef _net.mbedtls_net_context _net
     cdef TLSWrappedBuffer _input
     cdef TLSWrappedBuffer _output
-    cdef _IOContext _buffers
+    cdef _IOContext _ctx
     cdef void _net_bio(self)
-    cdef void _buf_bio(self)
     cdef int _proto
     cdef _socket
