@@ -36,10 +36,10 @@ cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
     assert len <= _tls.TLS_BUFFER_CAPACITY
     c_ctx = <_IOContext *>ctx
     if not c_ctx.done_handshake:
-        print("SEND:HS")
+        # print("> HS[%i]\n\t%r" % (len, bytes(buf[:len])))
         return _net.mbedtls_net_send(ctx, buf, len)
     else:
-        print("SEND:MSG")
+        print("\n> MSG[%i]\n\t%r" % (len, bytes(buf[:len])))
         return _net.mbedtls_net_send(ctx, buf, len)
 
 
@@ -47,10 +47,10 @@ cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
     assert len <= _tls.TLS_BUFFER_CAPACITY
     c_ctx = <_IOContext *>ctx
     if not c_ctx.done_handshake:
-        print("RECV:HS")
+        # print("< HS[%i]\n\t%r" % (len, bytes(buf[:len])))
         return _net.mbedtls_net_recv(ctx, buf, len)
     else:
-        print("SEND:MSG")
+        print("\n< MSG[%i]\n\t%r" % (len, bytes(buf[:len])))
         return _net.mbedtls_net_recv(ctx, buf, len)
 
 
@@ -983,10 +983,13 @@ cdef class TLSWrappedSocket:
     def recv(self, size_t bufsize, flags=0):
         # XXX Handle timeout?
         if not BUFFER:
-            return self.context._read(bufsize)
+            print("\n< RECV")
+            _ = self.context._read(bufsize)
+            print("\n< /RECV")
+            return _
         else:
-            self._input.receive_from_network(
-                self._socket.recv(bufsize, flags))
+            data = self._socket.recv(bufsize, flags)
+            self._input.receive_from_network(data)
             # XXX Crypted and encrypted may not have the same size.
             # XXX It is possible that we need to buffer more from
             # XXX the network than `bufsize`.
@@ -1003,7 +1006,10 @@ cdef class TLSWrappedSocket:
 
     def send(self, const unsigned char[:] message, flags=0):
         if not BUFFER:
-            return self._output.write(message)
+            print("\n> SEND")
+            _ = self._output.write(message)
+            print("\n> /SEND")
+            return _
         else:
             amt = self._output.write(message)
             amt = self._socket.send(self._output.peek_outgoing(amt), flags)

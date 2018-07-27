@@ -314,7 +314,8 @@ cdef class _BaseContext:
 
 
 cdef enum:
-    TLS_BUFFER_CAPACITY = 4096
+    # Maximum reported according to fourthbit.
+    TLS_BUFFER_CAPACITY = 16384
 
 
 cdef struct _TLSBuffer:
