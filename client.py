@@ -37,18 +37,12 @@ def main(host, port):
     print("  . protocol: ", sock.negotiated_protocol())
     print("  . cipher: ", sock.cipher())
 
-    print(sock.show())
-
     request = b"GET / HTTP/1.0\r\n\r\n"
     print("  > write to server:", request)
     sock.send(request)
 
-    print(sock.show())
-
     print("  < Read from server:", end=" ")
     print(sock.recv(1024))
-
-    print(sock.show())
 
     sock.close()
 

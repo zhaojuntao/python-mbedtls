@@ -8,7 +8,7 @@ __license__ = "MIT License"
 BUFFER = False
 
 
-from libc.stdlib cimport malloc, realloc, free
+from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 
 cimport mbedtls.pk as _pk
@@ -33,24 +33,12 @@ cdef _random.Random __rng = _random.Random()
 
 
 cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
-    ctx_ = <_tls._IOContext *>ctx
-    ctx_.output.buf = <unsigned char *>realloc(
-        ctx_.output.buf, len * sizeof(unsigned char))
-    ctx_.output.len = len
-    if not ctx_.output.buf:
-        return -1  # XXX
-    memcpy(ctx_.output.buf, buf, len)
+    assert len <= _tls.TLS_BUFFER_CAPACITY
     return 0
 
 
 cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
-    ctx_ = <_tls._IOContext *>ctx
-    ctx_.input.buf = <unsigned char *>realloc(
-        ctx_.input.buf, len * sizeof(unsigned char))
-    ctx_.input.len = len
-    if not ctx_.input.buf:
-        return -1
-    memcpy(ctx_.input.buf, buf, len)
+    assert len <= _tls.TLS_BUFFER_CAPACITY
     return 0
 
 
@@ -558,6 +546,17 @@ cdef class _BaseContext:
     cpdef _reset(self):
         check_error(_tls.mbedtls_ssl_session_reset(&self._ctx))
 
+    def _shutdown(self):
+        self._reset()
+
+    def _close(self):
+        self._shutdown()
+
+    def _read(self, size_t amt):
+        buffer = bytearray(amt)
+        amt = self._readinto(buffer, amt)
+        return bytes(buffer[:amt])
+
     def _readinto(self, unsigned char[:] buffer, size_t amt):
         while True:
             ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
@@ -595,7 +594,7 @@ cdef class _BaseContext:
     def _selected_npn_protocol(self):
         return None
 
-    def _selected_alpn_protocol(self):
+    def _negotiated_protocol(self):
         cdef const char* protocol = _tls.mbedtls_ssl_get_alpn_protocol(
             &self._ctx)
         if protocol is NULL:
@@ -606,7 +605,7 @@ cdef class _BaseContext:
         cdef const char* name = _tls.mbedtls_ssl_get_ciphersuite(&self._ctx)
         if name is NULL:
             return None
-        ssl_version = self._version()
+        ssl_version = self._negotiated_tls_version()
         secret_bits = None
         return name.decode("ascii"), ssl_version, secret_bits
 
@@ -658,7 +657,7 @@ cdef class _BaseContext:
     def _get_channel_binding(self, cb_type="tls-unique"):
         return None
 
-    def _version(self):
+    def _negotiated_tls_version(self):
         # Strings from `ssl_tls.c`.
         # DTLS:
         #   "DTLSv1.0"
@@ -763,7 +762,7 @@ cdef class TLSWrappedBuffer:
     cdef _output(self):
         return bytes(self._ctx.output.buf[:self._ctx.output.len])
 
-    cdef void _set_bio(self):
+    cdef void _buf_bio(self):
         if BUFFER:
             _tls.mbedtls_ssl_set_bio(
                 &self._context._ctx,
@@ -774,17 +773,15 @@ cdef class TLSWrappedBuffer:
 
     def read(self, amt):
         # PEP 543
-        buffer = bytearray(amt)
-        amt = self.readinto(buffer, amt)
-        return bytes(buffer[:amt])
+        return self.context._read(amt)
 
     def readinto(self, buffer, amt):
         # PEP 543
         return self.context._readinto(buffer, amt)
 
-    def write(self, buf):
+    def write(self, const unsigned char[:] buf):
         # PEP 543
-        self.context._write(buf)
+        return self.context._write(buf)
 
     def do_handshake(self):
         # PEP 543
@@ -800,7 +797,7 @@ cdef class TLSWrappedBuffer:
 
     def negotiated_protocol(self):
         # PEP 543
-        return self.context._selected_alpn_protocol()
+        return self.context._negotiated_protocol()
 
     @property
     def context(self):
@@ -810,16 +807,16 @@ cdef class TLSWrappedBuffer:
 
     def negotiated_tls_version(self):
         # PEP 543
-        return self.context._version()
+        return self.context._negotiated_tls_version()
 
     def shutdown(self):
         # PEP 543
-        self._context._reset()
+        self._context._shutdown()
 
-    def receive_from_network(self, data):
+    def receive_from_network(self, const unsigned char[:] data):
         # PEP 543
         # Append to data to input buffer.
-        ...
+        assert data.size
 
     def peek_outgoing(self, amt):
         # PEP 543
@@ -852,11 +849,7 @@ cdef class TLSWrappedSocket:
     def __str__(self):
         return str(self._socket)
 
-    def show(self):
-        # XXX DELETE ME
-        return self._buffer._input(), self._buffer._output()
-
-    cdef void _set_bio(self):
+    cdef void _net_bio(self):
         _tls.mbedtls_ssl_set_bio(
             &self._buffer._context._ctx,
             &self._ctx,
@@ -919,7 +912,7 @@ cdef class TLSWrappedSocket:
                 &self._ctx, host, port, self._proto))
 
     def close(self):
-        self._buffer.shutdown()
+        self.context._close()
         self._socket.close()
 
     def connect(self, address):
@@ -956,7 +949,7 @@ cdef class TLSWrappedSocket:
     def recv(self, size_t bufsize, flags=0):
         # XXX Handle timeout?
         if not BUFFER:
-            return self._buffer.read(bufsize)
+            return self.context._read(bufsize)
         else:
             self._buffer.receive_from_network(
                 self._socket.recv(bufsize, flags))
@@ -1005,28 +998,28 @@ cdef class TLSWrappedSocket:
         self._socket.setsockopt(level, optname, value)
 
     def shutdown(self, how):
-        self._buffer.shutdown()
+        self.context.shutdown()
         self._socket.shutdown(how)
 
     # PEP 543 adds the following methods.
 
     def do_handshake(self):
-        self._set_bio()
-        self._buffer.do_handshake()
-        self._buffer._set_bio()
+        self._net_bio()
+        self.context._do_handshake()
+        self._buffer._buf_bio()
 
     def cipher(self):
-        return self._buffer.cipher()
+        return self.context._cipher()
 
     def negotiated_protocol(self):
-        return self._buffer.negotiated_protocol()
+        return self.context._negotiated_protocol()
 
     @property
     def context(self):
         return self._buffer.context
 
     def negotiated_tls_version(self):
-        return self._buffer.negotiated_tls_version()
+        return self.context._negotiated_tls_version()
 
     def unwrap(self):
         self.shutdown(_socket.SHUT_RDWR)
