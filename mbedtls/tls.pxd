@@ -325,6 +325,7 @@ cdef struct _TLSBuffer:
     #       There are difference between Python 2 and Python 3.
     unsigned char *buf
     size_t len
+    size_t begin
 
 
 cdef struct _IOContext:
