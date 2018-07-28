@@ -148,6 +148,18 @@ PEM_HEADER = "-----BEGIN CERTIFICATE-----"
 PEM_FOOTER = "-----END CERTIFICATE-----"
 
 
+class WantWriteError(TLSError):
+    pass
+
+
+class WantReadError(TLSError):
+    pass
+
+
+class RaggedEOF(TLSError):
+    pass
+
+
 class TrustStore:
     def __init__(self, db=None):
         if db is None:
@@ -579,11 +591,11 @@ cdef class _BaseContext:
             if ret > 0:
                 return ret
             elif ret == 0:
-                # XXX Handle ragged EOF.
-                raise ValueError("Ragged EOF")
-            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
-                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
-                continue
+                raise RaggedEOF()
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+                raise WantReadError()
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+                raise WantWriteError()
             elif ret == _tls.MBEDTLS_ERR_SSL_CLIENT_RECONNECT:
                 # Handle that properly.
                 check_error(ret)
@@ -597,9 +609,10 @@ cdef class _BaseContext:
                 &self._ctx, &buffer[0], buffer.shape[0])
             if ret >= 0:
                 return ret
-            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
-                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
-                continue
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+                raise WantReadError()
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+                raise WantWriteError()
             else:
                 self._reset()
                 check_error(ret)
@@ -635,9 +648,10 @@ cdef class _BaseContext:
             ret = _tls.mbedtls_ssl_handshake_step(&self._ctx)
             if ret == 0:
                 return self._state
-            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
-                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
-                continue
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+                raise WantReadError()
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+                raise WantWriteError()
             else:
                 self._reset()
                 check_error(ret)
@@ -648,9 +662,10 @@ cdef class _BaseContext:
             ret = _tls.mbedtls_ssl_handshake(&self._ctx)
             if ret == 0:
                 return
-            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
-                         _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
-                continue
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+                raise WantReadError()
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+                raise WantWriteError()
             else:
                 assert ret < 0
                 self._reset()
@@ -662,9 +677,10 @@ cdef class _BaseContext:
             ret = _tls.mbedtls_ssl_renegotiate(&self._ctx)
             if ret == 0:
                 return
-            elif ret in (_tls.MBEDTLS_ERR_SSL_WANT_READ,
-                        _tls.MBEDTLS_ERR_SSL_WANT_WRITE):
-                continue
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+                raise WantReadError()
+            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+                raise WantWriteError()
             else:
                 assert ret < 0
                 self._reset()
