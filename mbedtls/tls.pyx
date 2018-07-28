@@ -577,15 +577,16 @@ cdef class _BaseContext:
         self._shutdown()
 
     def _read(self, size_t amt):
-        if not amt:
+        if amt <= 0:
             return b""
         buffer = bytearray(amt)
+        print("< _READ:%i" % amt)
         amt = self._readinto(buffer, amt)
-        print("< _READ:%i:%r" % (amt, bytes(buffer)[:amt]))
+        print("< /_READ:%r" % bytes(buffer)[:amt])
         return bytes(buffer[:amt])
 
     def _readinto(self, unsigned char[:] buffer, size_t amt):
-        if not amt:
+        if amt <= 0:
             return b""
         while True:
             ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
@@ -1001,6 +1002,7 @@ cdef class TLSWrappedSocket:
     # makefile
 
     def recv(self, size_t bufsize, flags=0):
+        # TLSWrappedSocket::recv()
         # XXX Handle timeout?
         if not BUFFER:
             print("\n< RECV")
