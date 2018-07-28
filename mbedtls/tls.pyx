@@ -1006,7 +1006,10 @@ cdef class TLSWrappedSocket:
             print("\n< /RECV")
             return _
         else:
+            print("\n< RECV")
             data = self._socket.recv(bufsize, flags)
+            print("\t%r" % data)
+            print("\n< /RECV")
             self._input.receive_from_network(data)
             # XXX Crypted and encrypted may not have the same size.
             # XXX It is possible that we need to buffer more from
