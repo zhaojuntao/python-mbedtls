@@ -581,6 +581,7 @@ cdef class _BaseContext:
             return b""
         buffer = bytearray(amt)
         amt = self._readinto(buffer, amt)
+        print("< _READ:%i:%r" % (amt, bytes(buffer)[:amt]))
         return bytes(buffer[:amt])
 
     def _readinto(self, unsigned char[:] buffer, size_t amt):
@@ -605,6 +606,7 @@ cdef class _BaseContext:
 
     def _write(self, const unsigned char[:] buffer):
         while True:
+            print("> _WRITE:%i:%r" % (buffer.size, bytes(buffer)))
             ret = _tls.mbedtls_ssl_write(
                 &self._ctx, &buffer[0], buffer.shape[0])
             if ret >= 0:
