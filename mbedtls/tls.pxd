@@ -331,7 +331,7 @@ cdef struct _IOContext:
     int fd
     _TLSBuffer *input
     _TLSBuffer *output
-    int done_handshake
+    mbedtls_ssl_context *ssl
 
 
 cdef class TLSWrappedBuffer:
