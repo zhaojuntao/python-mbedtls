@@ -831,7 +831,7 @@ cdef class TLSWrappedBuffer:
         return "%s(%r)" % (type(self).__name__, self.context)
 
     def __bytes__(self):
-        return bytes(self._buffer.buf[self._buffer.len])
+        return bytes(self._buffer.buf[:self._buffer.len])
 
     def read(self, size_t amt):
         # PEP 543
@@ -1007,17 +1007,7 @@ cdef class TLSWrappedSocket:
         self._socket.close()
 
     def connect(self, address):
-        host, port = address
-        port = str(port).encode("ascii")
-        if host is None:
-            check_error(_net.mbedtls_net_connect(
-                <_net.mbedtls_net_context *>&self._ctx,
-                NULL, port, self._proto))
-        else:
-            host = host.encode("ascii")
-            check_error(_net.mbedtls_net_connect(
-                <_net.mbedtls_net_context *>&self._ctx,
-                host, port, self._proto))
+        self._socket.connect(address)
 
     def connect_ex(self, address):
         self._socket.connect_ex(address)
