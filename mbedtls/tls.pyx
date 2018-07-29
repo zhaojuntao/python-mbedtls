@@ -5,7 +5,8 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-BUFFER = False
+BUFFER_RECV = False
+BUFFER_SEND = False
 
 
 from libc.stdlib cimport malloc, free
@@ -51,7 +52,7 @@ cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
         _ = _net.mbedtls_net_recv(ctx, buf, len)
         # print("< HS[%i]\n\t%r" % (len, bytes(buf[:len])))
         return _
-    elif True:
+    elif not BUFFER_RECV:
         print("\n< MSG A[%i]\n\t<<%r" % (len, bytes(buf[:len])))
         _ = _net.mbedtls_net_recv(ctx, buf, len)
         # May return WANT_READ
@@ -596,6 +597,7 @@ cdef class _BaseContext:
         return Purpose(self._conf._ctx.endpoint)
 
     cpdef _reset(self):
+        print("XXX RESET XXX")
         check_error(_tls.mbedtls_ssl_session_reset(&self._ctx))
 
     def _shutdown(self):
@@ -914,6 +916,7 @@ cdef class TLSWrappedSocket:
         if socket is not None and socket.fileno() != -1:
             # Implementation detail.
             self._ctx.fd = socket.fileno()
+            self._net_bio()
 
     def __cinit__(self,
                   socket,
@@ -980,6 +983,7 @@ cdef class TLSWrappedSocket:
                 # XXX Next argument is not in Python 2.7!
                 fileno=cli._ctx.fd,
             )
+            cli._net_bio()
             assert cli._socket.fileno() == cli._ctx.fd
             return cli, ip_address(bytes(buffer[:ip_sz]))
         finally:
@@ -1038,8 +1042,7 @@ cdef class TLSWrappedSocket:
     def recv(self, size_t bufsize, flags=0):
         # TLSWrappedSocket::recv()
         # XXX Handle timeout?
-        # if not BUFFER:  # XXX
-        if True:
+        if not BUFFER_RECV:
             print("\n< RECV")
             _ = self.context._read(bufsize)
             print("\n< /RECV")
@@ -1047,7 +1050,7 @@ cdef class TLSWrappedSocket:
         else:
             # XXX RECV BUFFER
             # XXX COULD BE WORKING
-            print("\n< RECV")
+            print("\n< RECV [%i]" % self._socket.fileno())
             data = self._socket.recv(bufsize, flags)
             print("\n< RECV:%r" % data)
             self._input.receive_from_network(data)
@@ -1068,8 +1071,8 @@ cdef class TLSWrappedSocket:
         ...
 
     def send(self, const unsigned char[:] message, flags=0):
-        if not BUFFER:
-            print("\n> SEND")
+        if not BUFFER_SEND:
+            print("\n> SEND [%i]" % self._socket.fileno())
             _ = self._output.write(message)
             print("\n> /SEND")
             return _
@@ -1107,7 +1110,6 @@ cdef class TLSWrappedSocket:
     # PEP 543 adds the following methods.
 
     def do_handshake(self):
-        self._net_bio()
         self.context._do_handshake()
 
     def cipher(self):
