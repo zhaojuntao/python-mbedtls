@@ -313,6 +313,14 @@ cdef class _BaseContext:
     cpdef _reset(self)
 
 
+cdef class ClientContext(_BaseContext):
+    pass
+
+
+cdef class ServerContext(_BaseContext):
+    pass
+
+
 cdef enum:
     # Maximum reported according to fourthbit.
     TLS_BUFFER_CAPACITY = 16384

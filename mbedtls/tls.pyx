@@ -5,7 +5,6 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-BUFFER_RECV = False
 BUFFER_SEND = False
 
 
@@ -45,34 +44,16 @@ cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
 
 
 cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
+    """Copy internal buffer to `buf`."""
     assert len <= _tls.TLS_BUFFER_CAPACITY
     c_ctx = <_IOContext *>ctx
     if c_ctx.ssl.state != _tls.MBEDTLS_SSL_HANDSHAKE_OVER:
-        # print("< HS[%i]\n\t%r" % (len, bytes(buf[:len])))
-        _ = _net.mbedtls_net_recv(ctx, buf, len)
-        # print("< HS[%i]\n\t%r" % (len, bytes(buf[:len])))
-        return _
-    elif not BUFFER_RECV:
-        print("\n< MSG A[%i]\n\t<<%r" % (len, bytes(buf[:len])))
-        _ = _net.mbedtls_net_recv(ctx, buf, len)
-        # May return WANT_READ
-        print("\n< MSG B[%i]\n\t<<%r" % (_, bytes(buf[:len])))
-        return _
+        return _net.mbedtls_net_recv(ctx, buf, len)
     else:
-        # XXX Requires changing the branch in recv() as well.
-        # XXX RECV BUFFER
-        # XXX COULD BE WORKING!
-        # XXX PROBABLY ONLY WORKS ONCE!
-        # XXX WE NEED TO RESET THE INDICES ONCE EVERYTHING
-        # XXX HAS BEEN READ OR USE A RING BUFFER.
-        # XXX Server seems happy; client crashes...
         begin = c_ctx.input.begin
         assert len <= c_ctx.input.len - begin
         length = min(c_ctx.input.len - begin, len)
-        print("\n< MSG A:%i:%i (%i)\n\t<<%r" % (
-            c_ctx.input.len - begin, len, begin, buf[:len]))
         memcpy(buf, &c_ctx.input.buf[begin], length)
-        print("\n< MSG B[%i]\n\t<<%r" % (length, bytes(buf[:length])))
         if c_ctx.input.begin + length == c_ctx.input.len:
             # Everything has been read.  We are done
             # with this buffer.
@@ -1031,25 +1012,9 @@ cdef class TLSWrappedSocket:
 
     def recv(self, size_t bufsize, flags=0):
         # TLSWrappedSocket::recv()
-        # XXX Handle timeout?
-        if not BUFFER_RECV:
-            print("\n< RECV")
-            _ = self.context._read(bufsize)
-            print("\n< /RECV")
-            return _
-        else:
-            # XXX RECV BUFFER
-            # XXX COULD BE WORKING
-            print("\n< RECV [%i]" % self._socket.fileno())
-            data = self._socket.recv(bufsize, flags)
-            print("\n< RECV:%r" % data)
-            self._input.receive_from_network(data)
-            print("\n\t< /RECV")
-            # XXX Crypted and encrypted may not have the same size.
-            # XXX It is possible that we need to buffer more from
-            # XXX the network than `bufsize`.
-            # return self._input.read(bufsize)
-            return self.context._read(bufsize)
+        data = self._socket.recv(bufsize, flags)
+        self._input.receive_from_network(data)
+        return self.context._read(bufsize)
 
     def recvfrom(self, bufsize, flags=0):
         ...
