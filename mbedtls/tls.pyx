@@ -5,7 +5,7 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-BUFFER_SEND = False
+BUFFER_SEND = True
 
 
 from libc.stdlib cimport malloc, free
@@ -33,24 +33,34 @@ cdef _random.Random __rng = _random.Random()
 
 
 cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
-    assert len <= _tls.TLS_BUFFER_CAPACITY
+    """Copy `buf` to internal buffer."""
+    if not BUFFER_SEND:
+        return _net.mbedtls_net_send(ctx, buf, len)
+
     c_ctx = <_IOContext *>ctx
+    print("< SEND %r" % bytes(buf)[:len])
+    print("< SEND (%i/%i)" % (c_ctx.output.begin, c_ctx.output.len))
     if c_ctx.ssl.state != _tls.MBEDTLS_SSL_HANDSHAKE_OVER:
-        # print("> HS[%i]\n\t%r" % (len, bytes(buf[:len])))
         return _net.mbedtls_net_send(ctx, buf, len)
     else:
-        print("\n> MSG[%i]\n\t>>%r" % (len, bytes(buf[:len])))
-        return _net.mbedtls_net_send(ctx, buf, len)
+        length = min(len, _tls.TLS_BUFFER_CAPACITY)
+        memcpy(&c_ctx.output.buf[0], buf, length)
+        c_ctx.output.len = length
+        return length
 
 
 cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
     """Copy internal buffer to `buf`."""
-    assert len <= _tls.TLS_BUFFER_CAPACITY
     c_ctx = <_IOContext *>ctx
     if c_ctx.ssl.state != _tls.MBEDTLS_SSL_HANDSHAKE_OVER:
         return _net.mbedtls_net_recv(ctx, buf, len)
+    elif len > _tls.TLS_BUFFER_CAPACITY:
+        # Buffer overflow.
+        return -1
+    elif len > c_ctx.input.len - c_ctx.input.begin:
+        # Buffer overflow.
+        return -2
     else:
-        assert len <= c_ctx.input.len - c_ctx.input.begin
         length = min(c_ctx.input.len - c_ctx.input.begin, len)
         memcpy(buf, &c_ctx.input.buf[c_ctx.input.begin], length)
         if c_ctx.input.begin + length == c_ctx.input.len:
@@ -823,7 +833,9 @@ cdef class TLSWrappedBuffer:
 
     def write(self, const unsigned char[:] buf):
         # PEP 543
-        return self.context._write(buf)
+        amt = self.context._write(buf)
+        self._buffer.len = amt
+        return amt
 
     def do_handshake(self):
         # PEP 543
@@ -858,8 +870,6 @@ cdef class TLSWrappedBuffer:
     def receive_from_network(self, const unsigned char[:] data not None):
         # PEP 543
         # Append to data to input buffer.
-        # XXX Ring buffer...
-        assert data.size
         if self._buffer.len + data.size > _tls.TLS_BUFFER_CAPACITY:
             raise BufferError("Input buffer overflow")
 
@@ -873,13 +883,24 @@ cdef class TLSWrappedBuffer:
     def peek_outgoing(self, size_t amt):
         # PEP 543
         # Read from output buffer.
+        print("< PEEK %i" % amt)
+        if amt == 0:
+            return b""
         return bytes(self)[:amt]
 
     def consume_outgoing(self, size_t amt):
+        """Consumte `amt` bytes from the output buffer."""
         # PEP 543
-        # Remove up to `amt` from `output`.
-        # XXX Ring buffer... -> move begin by `amt`
-        self._buffer.len = amt
+        print("< CONSUME %i" % amt)
+        if amt == 0:
+            return
+        self._buffer.begin += amt
+        assert self._buffer.begin <= self._buffer.len, (
+            "%i of %i" % (self._buffer.begin, self._buffer.len)
+        )
+        if self._buffer.begin == self._buffer.len:
+            self._buffer.begin = 0
+            self._buffer.len = 0
 
 
 cdef class TLSWrappedSocket:
@@ -1035,9 +1056,13 @@ cdef class TLSWrappedSocket:
             print("\n> /SEND")
             return _
         else:
+            assert self._output._buffer.begin == 0
+            assert self._output._buffer.len == 0
             amt = self._output.write(message)
-            amt = self._socket.send(self._output.peek_outgoing(amt), flags)
-            self._buffer.consume_outgoing(amt)
+            data = self._output.peek_outgoing(amt)
+            print("> SEND %r" % data)
+            amt = self._socket.send(data, flags)
+            self._output.consume_outgoing(amt)
             return amt
 
     def sendall(self, string, flags=0):
