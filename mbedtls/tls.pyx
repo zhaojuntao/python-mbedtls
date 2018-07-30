@@ -50,10 +50,9 @@ cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
     if c_ctx.ssl.state != _tls.MBEDTLS_SSL_HANDSHAKE_OVER:
         return _net.mbedtls_net_recv(ctx, buf, len)
     else:
-        begin = c_ctx.input.begin
-        assert len <= c_ctx.input.len - begin
-        length = min(c_ctx.input.len - begin, len)
-        memcpy(buf, &c_ctx.input.buf[begin], length)
+        assert len <= c_ctx.input.len - c_ctx.input.begin
+        length = min(c_ctx.input.len - c_ctx.input.begin, len)
+        memcpy(buf, &c_ctx.input.buf[c_ctx.input.begin], length)
         if c_ctx.input.begin + length == c_ctx.input.len:
             # Everything has been read.  We are done
             # with this buffer.
@@ -1013,6 +1012,10 @@ cdef class TLSWrappedSocket:
     def recv(self, size_t bufsize, flags=0):
         # TLSWrappedSocket::recv()
         data = self._socket.recv(bufsize, flags)
+        if not data:
+            return b""
+        assert self._input._buffer.begin == 0
+        assert self._input._buffer.len == 0
         self._input.receive_from_network(data)
         return self.context._read(bufsize)
 
