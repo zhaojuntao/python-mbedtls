@@ -89,7 +89,7 @@ class TestBaseContext:
 
     @pytest.fixture
     def conf(self, purpose):
-        return TLSConfiguration._create_default_context(purpose=purpose)
+        return TLSConfiguration(validate_certificates=False)
 
     @pytest.fixture(params=[ServerContext, ClientContext])
     def context(self, conf, request):
@@ -100,43 +100,17 @@ class TestBaseContext:
         assert conf
         assert context.configuration is conf
 
-    @pytest.mark.xfail(raises=TLSError, strict=True)
-    def test_read_amt(self, context):
-        res = context.read(12)
-
-    @pytest.mark.xfail(raises=TLSError, strict=True)
-    def test_read_buf_amt(self, context):
-        buf = bytearray(32)
-        assert context.read(buf, 12) == 12
-        assert buf == bytearray(32)
-
-    @pytest.mark.xfail(raises=TLSError, strict=True)
-    def test_write_buf(self, context):
-        buf = bytearray(32)
-        assert context.write(buf) == 32
-
     def test_selected_npn_protocol(self, context):
-        assert context.selected_npn_protocol() is None
-
-    def test_selected_alpn_protocol(self, context):
-        assert context.selected_alpn_protocol() is None
+        assert context._selected_npn_protocol() is None
 
     def test_cipher(self, context):
-        assert context.cipher() is None
-
-    @pytest.mark.xfail(raises=TLSError, strict=True)
-    def test_do_handshake(self, context):
-        context.do_handshake()
-
-    @pytest.mark.xfail(raises=TLSError, strict=True)
-    def test_renegotiate(self, context):
-        context.renegotiate()
+        assert context._cipher() is None
 
     def test_get_channel_binding(self, context):
-        assert context.get_channel_binding() is None
+        assert context._get_channel_binding() is None
 
-    def test_version(self, context):
-        assert context.version() is TLSVersion.SSLv3
+    def test_negotiated_tls_version(self, context):
+        assert context._negotiated_tls_version() is TLSVersion.SSLv3
 
 
 class TestClientContext:
