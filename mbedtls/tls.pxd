@@ -63,6 +63,8 @@ cdef:
         MBEDTLS_ERR_SSL_WANT_WRITE = -0x6880
         MBEDTLS_ERR_SSL_CLIENT_RECONNECT = -0x6780
         MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY = -0x7880
+        MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL = -0x6a00
+        MBEDTLS_ERR_SSL_BAD_INPUT_DATA = -0x7100
 
 
 cdef extern from "mbedtls/ssl_internal.h":

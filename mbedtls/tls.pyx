@@ -5,9 +5,6 @@ __copyright__ = "Copyright 2018, Mathias Laurin"
 __license__ = "MIT License"
 
 
-BUFFER_SEND = True
-
-
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 
@@ -32,52 +29,41 @@ from mbedtls.exceptions import *
 cdef _random.Random __rng = _random.Random()
 
 
-cdef int buffer_send(void *ctx, const unsigned char *buf, size_t len):
+cdef int buffer_write(void *ctx, const unsigned char *buf, size_t len):
     """Copy `buf` to internal buffer."""
-    if not BUFFER_SEND:
-        return _net.mbedtls_net_send(ctx, buf, len)
-
     c_ctx = <_IOContext *>ctx
-    print("< SEND %r" % bytes(buf)[:len])
-    print("< SEND (%i/%i)" % (c_ctx.output.begin, c_ctx.output.len))
     if c_ctx.ssl.state != _tls.MBEDTLS_SSL_HANDSHAKE_OVER:
         return _net.mbedtls_net_send(ctx, buf, len)
-    else:
-        length = min(len, _tls.TLS_BUFFER_CAPACITY)
-        memcpy(&c_ctx.output.buf[0], buf, length)
-        c_ctx.output.len = length
-        return length
+
+    if len > _tls.TLS_BUFFER_CAPACITY:
+        return _tls.MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL
+
+    memcpy(&c_ctx.output.buf[0], buf, len)
+    c_ctx.output.len = len
+    return len
 
 
-cdef int buffer_recv(void *ctx, unsigned char *buf, size_t len):
+cdef int buffer_read(void *ctx, unsigned char *buf, size_t len):
     """Copy internal buffer to `buf`."""
     c_ctx = <_IOContext *>ctx
     if c_ctx.ssl.state != _tls.MBEDTLS_SSL_HANDSHAKE_OVER:
         return _net.mbedtls_net_recv(ctx, buf, len)
-    elif len > _tls.TLS_BUFFER_CAPACITY:
-        # Buffer overflow.
-        return -1
+
+    if len > _tls.TLS_BUFFER_CAPACITY:
+        return _tls.MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL
     elif len > c_ctx.input.len - c_ctx.input.begin:
-        # Buffer overflow.
-        return -2
+        return _tls.MBEDTLS_ERR_SSL_BAD_INPUT_DATA
+
+    cdef size_t length = min(c_ctx.input.len - c_ctx.input.begin, len)
+    memcpy(buf, &c_ctx.input.buf[c_ctx.input.begin], length)
+    if c_ctx.input.begin + length == c_ctx.input.len:
+        # Everything has been read.  We are done
+        # with this buffer.
+        c_ctx.input.begin = 0
+        c_ctx.input.len = 0
     else:
-        length = min(c_ctx.input.len - c_ctx.input.begin, len)
-        memcpy(buf, &c_ctx.input.buf[c_ctx.input.begin], length)
-        if c_ctx.input.begin + length == c_ctx.input.len:
-            # Everything has been read.  We are done
-            # with this buffer.
-            c_ctx.input.begin = 0
-            c_ctx.input.len = 0
-        else:
-            c_ctx.input.begin = length
-        return length
-
-
-cdef void debug(
-    # FIXME Is this really necessary?
-        void *ctx, int level,
-        const char* file, int line, const char *str):
-    print(file, line, str)
+        c_ctx.input.begin = length
+    return length
 
 
 def __get_ciphersuite_name(ciphersuite_id):
@@ -267,8 +253,6 @@ cdef class TLSConfiguration:
         # Set random engine.
         _tls.mbedtls_ssl_conf_rng(
             &self._ctx, &_random.mbedtls_ctr_drbg_random, &__rng._ctx)
-        # and debug function.
-        _tls.mbedtls_ssl_conf_dbg(&self._ctx, &debug, NULL)
 
     def __cinit__(self):
         _tls.mbedtls_ssl_config_init(&self._ctx)
@@ -587,7 +571,6 @@ cdef class _BaseContext:
         return Purpose(self._conf._ctx.endpoint)
 
     cpdef _reset(self):
-        print("XXX RESET XXX")
         check_error(_tls.mbedtls_ssl_session_reset(&self._ctx))
 
     def _shutdown(self):
@@ -600,45 +583,40 @@ cdef class _BaseContext:
         if amt <= 0:
             return b""
         buffer = bytearray(amt)
-        print("< _READ:%i" % amt)
         amt = self._readinto(buffer, amt)
-        print("< /_READ:%r" % bytes(buffer)[:amt])
         return bytes(buffer[:amt])
 
     def _readinto(self, unsigned char[:] buffer, size_t amt):
         if amt <= 0:
             return b""
-        while True:
-            ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
-            if ret > 0:
-                return ret
-            elif ret == 0:
-                raise RaggedEOF()
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
-                raise WantReadError()
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
-                raise WantWriteError()
-            elif ret == _tls.MBEDTLS_ERR_SSL_CLIENT_RECONNECT:
-                # Handle that properly.
-                check_error(ret)
-            else:
-                self._reset()
-                check_error(ret)
+
+        ret = _tls.mbedtls_ssl_read(&self._ctx, &buffer[0], amt)
+        if ret > 0:
+            return ret
+        elif ret == 0:
+            raise RaggedEOF()
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+            raise WantReadError()
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+            raise WantWriteError()
+        elif ret == _tls.MBEDTLS_ERR_SSL_CLIENT_RECONNECT:
+            # Handle that properly.
+            check_error(ret)
+        else:
+            self._reset()
+            check_error(ret)
 
     def _write(self, const unsigned char[:] buffer):
-        while True:
-            print("> _WRITE:%i:%r" % (buffer.size, bytes(buffer)))
-            ret = _tls.mbedtls_ssl_write(
-                &self._ctx, &buffer[0], buffer.shape[0])
-            if ret >= 0:
-                return ret
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
-                raise WantReadError()
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
-                raise WantWriteError()
-            else:
-                self._reset()
-                check_error(ret)
+        ret = _tls.mbedtls_ssl_write(&self._ctx, &buffer[0], buffer.size)
+        if ret >= 0:
+            return ret
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+            raise WantReadError()
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+            raise WantWriteError()
+        else:
+            self._reset()
+            check_error(ret)
 
     # def getpeercert(self, binary_form=False):
     #     crt = _tls.mbedtls_ssl_get_peer_cert()
@@ -666,48 +644,44 @@ cdef class _BaseContext:
         return HandshakeStep(self._ctx.state)
 
     def _do_handshake_step(self):
-        # self._state == 16 is MBEDTLS_SSL_HANDSHAKE_OVER
-        while True:
-            ret = _tls.mbedtls_ssl_handshake_step(&self._ctx)
-            if ret == 0:
-                return self._state
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
-                raise WantReadError()
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
-                raise WantWriteError()
-            else:
-                self._reset()
-                check_error(ret)
+        ret = _tls.mbedtls_ssl_handshake_step(&self._ctx)
+        if ret == 0:
+            return self._state
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+            raise WantReadError()
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+            raise WantWriteError()
+        else:
+            self._reset()
+            check_error(ret)
 
     def _do_handshake(self):
         """Start the SSL/TLS handshake."""
-        while True:
-            ret = _tls.mbedtls_ssl_handshake(&self._ctx)
-            if ret == 0:
-                return
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
-                raise WantReadError()
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
-                raise WantWriteError()
-            else:
-                assert ret < 0
-                self._reset()
-                check_error(ret)
+        ret = _tls.mbedtls_ssl_handshake(&self._ctx)
+        if ret == 0:
+            return
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+            raise WantReadError()
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+            raise WantWriteError()
+        else:
+            assert ret < 0
+            self._reset()
+            check_error(ret)
 
     def _renegotiate(self):
         """Initialize an SSL renegotiation on the running connection."""
-        while True:
-            ret = _tls.mbedtls_ssl_renegotiate(&self._ctx)
-            if ret == 0:
-                return
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
-                raise WantReadError()
-            elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
-                raise WantWriteError()
-            else:
-                assert ret < 0
-                self._reset()
-                check_error(ret)
+        ret = _tls.mbedtls_ssl_renegotiate(&self._ctx)
+        if ret == 0:
+            return
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_READ:
+            raise WantReadError()
+        elif ret == _tls.MBEDTLS_ERR_SSL_WANT_WRITE:
+            raise WantWriteError()
+        else:
+            assert ret < 0
+            self._reset()
+            check_error(ret)
 
     def _get_channel_binding(self, cb_type="tls-unique"):
         return None
@@ -833,9 +807,15 @@ cdef class TLSWrappedBuffer:
 
     def write(self, const unsigned char[:] buf):
         # PEP 543
-        amt = self.context._write(buf)
-        self._buffer.len = amt
-        return amt
+        begin, len = 0, buf.size
+        while True:
+            amt = self.context._write(buf[begin:len])
+            if amt == buf.size:
+                break
+            else:
+                begin += amt
+                len -= amt
+        return self._buffer.len
 
     def do_handshake(self):
         # PEP 543
@@ -878,12 +858,10 @@ cdef class TLSWrappedBuffer:
         memcpy(&self._buffer.buf[end], &data[0], data.size)
         assert bytes(data) == bytes(self._buffer.buf[end:data.size])
         self._buffer.len = data.size
-        print("buffered %i bytes" %  self._buffer.len)
 
     def peek_outgoing(self, size_t amt):
         # PEP 543
         # Read from output buffer.
-        print("< PEEK %i" % amt)
         if amt == 0:
             return b""
         return bytes(self)[:amt]
@@ -891,9 +869,9 @@ cdef class TLSWrappedBuffer:
     def consume_outgoing(self, size_t amt):
         """Consumte `amt` bytes from the output buffer."""
         # PEP 543
-        print("< CONSUME %i" % amt)
         if amt == 0:
             return
+
         self._buffer.begin += amt
         assert self._buffer.begin <= self._buffer.len, (
             "%i of %i" % (self._buffer.begin, self._buffer.len)
@@ -941,8 +919,8 @@ cdef class TLSWrappedSocket:
         _tls.mbedtls_ssl_set_bio(
             self._ctx.ssl,
             &self._ctx,
-            buffer_send,
-            buffer_recv,
+            buffer_write,
+            buffer_read,
             NULL)
 
     # PEP 543 requires the full socket API.
@@ -1050,20 +1028,13 @@ cdef class TLSWrappedSocket:
         ...
 
     def send(self, const unsigned char[:] message, flags=0):
-        if not BUFFER_SEND:
-            print("\n> SEND [%i]" % self._socket.fileno())
-            _ = self._output.write(message)
-            print("\n> /SEND")
-            return _
-        else:
-            assert self._output._buffer.begin == 0
-            assert self._output._buffer.len == 0
-            amt = self._output.write(message)
-            data = self._output.peek_outgoing(amt)
-            print("> SEND %r" % data)
-            amt = self._socket.send(data, flags)
-            self._output.consume_outgoing(amt)
-            return amt
+        assert self._output._buffer.begin == 0
+        assert self._output._buffer.len == 0
+        amt = self._output.write(message)
+        data = self._output.peek_outgoing(amt)
+        amt = self._socket.send(data, flags)
+        self._output.consume_outgoing(amt)
+        return amt
 
     def sendall(self, string, flags=0):
         ...
