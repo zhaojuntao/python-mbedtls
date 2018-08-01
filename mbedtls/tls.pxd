@@ -353,6 +353,6 @@ cdef class TLSWrappedSocket:
     # cdef _net.mbedtls_net_context _net
     cdef TLSWrappedBuffer _buffer
     cdef _IOContext _ctx
-    cdef void _net_bio(self)
+    cdef void _set_bio(self)
     cdef int _proto
     cdef _socket

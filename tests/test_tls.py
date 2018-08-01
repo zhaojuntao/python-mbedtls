@@ -192,6 +192,7 @@ class TestTLSCommunication:
         runner.join(0.1)
         sock.close()
 
+    @pytest.mark.skip()
     def test_client_server_not_encrypted(self, client, server):
         client.do_handshake()
         client.sendall(b"hello")

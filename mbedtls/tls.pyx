@@ -890,7 +890,7 @@ cdef class TLSWrappedSocket:
         if socket is not None and socket.fileno() != -1:
             # Implementation detail.
             self._ctx.fd = socket.fileno()
-            self._net_bio()
+            self._set_bio()
 
     def __cinit__(self, socket, TLSWrappedBuffer buffer):
         _net.mbedtls_net_init(<_net.mbedtls_net_context *>&self._ctx)
@@ -905,7 +905,7 @@ cdef class TLSWrappedSocket:
     def __str__(self):
         return str(self._socket)
 
-    cdef void _net_bio(self):
+    cdef void _set_bio(self):
         _tls.mbedtls_ssl_set_bio(
             self._ctx.ssl,
             &self._ctx,
@@ -940,8 +940,6 @@ cdef class TLSWrappedSocket:
                 <_net.mbedtls_net_context *>&self._ctx,
                 <_net.mbedtls_net_context *>&cli._ctx,
                 &buffer[0], sz, &ip_sz))
-                # XXX Example has NULL, 0, NULL for the server.
-                # &self._ctx, &cli._ctx, NULL, 0, NULL))
             cli._socket = _socket.socket(
                 family=_socket.AF_INET,
                 type={
@@ -951,7 +949,7 @@ cdef class TLSWrappedSocket:
                 # XXX Next argument is not in Python 2.7!
                 fileno=cli._ctx.fd,
             )
-            cli._net_bio()
+            cli._set_bio()
             assert cli._socket.fileno() == cli._ctx.fd
             return cli, ip_address(bytes(buffer[:ip_sz]))
         finally:
