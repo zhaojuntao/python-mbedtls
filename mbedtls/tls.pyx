@@ -22,7 +22,6 @@ from ipaddress import ip_address
 import certifi
 
 import mbedtls.random as _random
-from mbedtls import _pep543
 from mbedtls.exceptions import *
 
 
@@ -528,7 +527,7 @@ cdef class TLSConfiguration:
 
 
 
-DEFAULT_CIPHER_LIST = _pep543.DEFAULT_CIPHER_LIST  # None
+DEFAULT_CIPHER_LIST = None
 
 
 cdef class _TLSSession:
