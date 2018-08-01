@@ -38,8 +38,8 @@ cdef int buffer_write(void *ctx, const unsigned char *buf, size_t len):
     if len > _tls.TLS_BUFFER_CAPACITY:
         return _tls.MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL
 
-    memcpy(&c_ctx.output.buf[0], buf, len)
-    c_ctx.output.len = len
+    memcpy(&c_ctx.buffer.buf[0], buf, len)
+    c_ctx.buffer.len = len
     return len
 
 
@@ -51,18 +51,18 @@ cdef int buffer_read(void *ctx, unsigned char *buf, size_t len):
 
     if len > _tls.TLS_BUFFER_CAPACITY:
         return _tls.MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL
-    elif len > c_ctx.input.len - c_ctx.input.begin:
+    elif len > c_ctx.buffer.len - c_ctx.buffer.begin:
         return _tls.MBEDTLS_ERR_SSL_BAD_INPUT_DATA
 
-    cdef size_t length = min(c_ctx.input.len - c_ctx.input.begin, len)
-    memcpy(buf, &c_ctx.input.buf[c_ctx.input.begin], length)
-    if c_ctx.input.begin + length == c_ctx.input.len:
+    cdef size_t length = min(c_ctx.buffer.len - c_ctx.buffer.begin, len)
+    memcpy(buf, &c_ctx.buffer.buf[c_ctx.buffer.begin], length)
+    if c_ctx.buffer.begin + length == c_ctx.buffer.len:
         # Everything has been read.  We are done
         # with this buffer.
-        c_ctx.input.begin = 0
-        c_ctx.input.len = 0
+        c_ctx.buffer.begin = 0
+        c_ctx.buffer.len = 0
     else:
-        c_ctx.input.begin = length
+        c_ctx.buffer.begin = length
     return length
 
 
@@ -723,15 +723,15 @@ cdef class ClientContext(_BaseContext):
                 dangerous and should not be the default behavior.
 
         """
-        input, output = self.wrap_buffers(server_hostname)
-        return TLSWrappedSocket(socket, input, output)
+        buffer = self.wrap_buffers(server_hostname)
+        return TLSWrappedSocket(socket, buffer)
 
     def wrap_buffers(self, server_hostname=None):
         """Create an in-memory stream for TLS."""
         # PEP 543
         if server_hostname is not None:
             self.set_hostname(server_hostname)
-        return TLSWrappedBuffer(self), TLSWrappedBuffer(self)
+        return TLSWrappedBuffer(self)
 
     def set_hostname(self, hostname):
         """Set the hostname to check against the received server."""
@@ -764,12 +764,12 @@ cdef class ServerContext(_BaseContext):
 
     def wrap_socket(self, socket):
         """Wrap an existing Python socket object ``socket``."""
-        input, output = self.wrap_buffers()
-        return TLSWrappedSocket(socket, input, output)
+        buffer = self.wrap_buffers()
+        return TLSWrappedSocket(socket, buffer)
 
     def wrap_buffers(self):
         # PEP 543
-        return TLSWrappedBuffer(self), TLSWrappedBuffer(self)
+        return TLSWrappedBuffer(self)
 
 
 cdef class TLSWrappedBuffer:
@@ -883,33 +883,24 @@ cdef class TLSWrappedBuffer:
 
 cdef class TLSWrappedSocket:
     # _pep543.TLSWrappedSocket
-    def __init__(self,
-                 socket,
-                 TLSWrappedBuffer input,
-                 TLSWrappedBuffer output):
+    def __init__(self, socket, TLSWrappedBuffer buffer):
         super().__init__()
         self._socket = socket
-        self._input = input
-        self._output = output
+        self._buffer = buffer
         self._proto = _net.MBEDTLS_NET_PROTO_TCP
         if socket is not None and socket.fileno() != -1:
             # Implementation detail.
             self._ctx.fd = socket.fileno()
             self._net_bio()
 
-    def __cinit__(self,
-                  socket,
-                  TLSWrappedBuffer input,
-                  TLSWrappedBuffer output):
+    def __cinit__(self, socket, TLSWrappedBuffer buffer):
         _net.mbedtls_net_init(<_net.mbedtls_net_context *>&self._ctx)
-        self._ctx.input = &input._buffer
-        self._ctx.output = &output._buffer
-        self._ctx.ssl = &input._context._ctx
+        self._ctx.buffer = &buffer._buffer
+        self._ctx.ssl = &buffer._context._ctx
 
     def __dealloc__(self):
         _net.mbedtls_net_free(<_net.mbedtls_net_context *>&self._ctx)
-        self._ctx.input = NULL
-        self._ctx.output = NULL
+        self._ctx.buffer = NULL
         self._ctx.ssl = NULL
 
     def __str__(self):
@@ -938,9 +929,8 @@ cdef class TLSWrappedSocket:
         return self._socket.type
 
     def accept(self):
-        input, output = ServerContext(
-            self.context.configuration).wrap_buffers()
-        cdef TLSWrappedSocket cli = TLSWrappedSocket(None, input, output)
+        cdef TLSWrappedSocket cli = TLSWrappedSocket(
+            None, ServerContext(self.context.configuration).wrap_buffers())
         cdef size_t sz = 256
         cdef size_t ip_sz
         cdef char* buffer = <char*>malloc(sz * sizeof(char))
@@ -1013,9 +1003,8 @@ cdef class TLSWrappedSocket:
         data = self._socket.recv(bufsize, flags)
         if not data:
             return b""
-        assert self._input._buffer.begin == 0
-        assert self._input._buffer.len == 0
-        self._input.receive_from_network(data)
+        assert self._buffer._buffer.begin == 0
+        self._buffer.receive_from_network(data)
         return self.context._read(bufsize)
 
     def recvfrom(self, bufsize, flags=0):
@@ -1028,12 +1017,12 @@ cdef class TLSWrappedSocket:
         ...
 
     def send(self, const unsigned char[:] message, flags=0):
-        assert self._output._buffer.begin == 0
-        assert self._output._buffer.len == 0
-        amt = self._output.write(message)
-        data = self._output.peek_outgoing(amt)
+        assert self._buffer._buffer.begin == 0
+        assert self._buffer._buffer.len == 0
+        amt = self._buffer.write(message)
+        data = self._buffer.peek_outgoing(amt)
         amt = self._socket.send(data, flags)
-        self._output.consume_outgoing(amt)
+        self._buffer.consume_outgoing(amt)
         return amt
 
     def sendall(self, string, flags=0):
@@ -1074,7 +1063,7 @@ cdef class TLSWrappedSocket:
 
     @property
     def context(self):
-        return self._input.context
+        return self._buffer.context
 
     def negotiated_tls_version(self):
         return self.context._negotiated_tls_version()
