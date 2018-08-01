@@ -116,8 +116,7 @@ class TestBaseContext:
 class TestClientContext:
     @pytest.fixture
     def conf(self):
-        return TLSConfiguration._create_default_context(
-            purpose=Purpose.CLIENT_AUTH)
+        return TLSConfiguration(validate_certificates=False)
 
     @pytest.fixture
     def context(self, conf):
@@ -127,8 +126,7 @@ class TestClientContext:
 class TestServerContext:
     @pytest.fixture
     def conf(self):
-        return TLSConfiguration._create_default_context(
-            purpose=Purpose.SERVER_AUTH)
+        return TLSConfiguration(validate_certificates=False)
 
     @pytest.fixture
     def context(self, conf):
@@ -138,8 +136,7 @@ class TestServerContext:
 class TestTLSCommunication:
     @pytest.fixture(scope="class")
     def host(self):
-        # return "localhost"
-        return None  # for localhost.
+        return "localhost"
 
     @pytest.fixture(scope="class")
     def port(self):
@@ -147,17 +144,11 @@ class TestTLSCommunication:
 
     @pytest.fixture(scope="class")
     def srv_conf(self):
-        conf = TLSConfiguration._create_default_context(
-            purpose=Purpose.SERVER_AUTH)
-        # XXX Disable certificate validation.
-        return conf.update(validate_certificates=False)
+        return TLSConfiguration(validate_certificates=False)
 
     @pytest.fixture
     def cli_conf(self):
-        conf = TLSConfiguration._create_default_context(
-            purpose=Purpose.CLIENT_AUTH)
-        # XXX Disable certificate validation.
-        return conf.update(validate_certificates=False)
+        return TLSConfiguration(validate_certificates=False)
 
     @pytest.fixture
     def client(self, cli_conf, host, port):
@@ -201,7 +192,6 @@ class TestTLSCommunication:
         runner.join(0.1)
         sock.close()
 
-    @pytest.mark.skip("segfault")
     def test_client_server_not_encrypted(self, client, server):
         client.do_handshake()
         client.sendall(b"hello")
