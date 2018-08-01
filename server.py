@@ -7,7 +7,7 @@ from mbedtls.pk import RSA
 from mbedtls.x509 import Certificate
 from mbedtls.tls import *
 
-HOST = None  # "localhost"
+HOST = "localhost"
 PORT = 4433
 
 
@@ -32,10 +32,12 @@ def main(host, port):
 
     sock = ctx.wrap_socket(
         socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     assert isinstance(sock, TLSWrappedSocket)
 
     print("binding to %r:%i" % (host, port))
     sock.bind((host, port))
+    sock.listen()
 
     print("  . TLS Version: ", sock.negotiated_tls_version())
     print("  . protocol: ", sock.negotiated_protocol())

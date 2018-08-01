@@ -798,14 +798,17 @@ cdef class TLSWrappedBuffer:
 
     def read(self, size_t amt):
         # PEP 543
+        assert self._buffer.begin == self._buffer.len == 0
         return self.context._read(amt)
 
     def readinto(self, unsigned char[:] buffer, size_t amt):
         # PEP 543
+        assert self._buffer.begin == self._buffer.len == 0
         return self.context._readinto(buffer, amt)
 
     def write(self, const unsigned char[:] buf):
         # PEP 543
+        assert self._buffer.begin == self._buffer.len == 0
         begin, len = 0, buf.size
         while True:
             amt = self.context._write(buf[begin:len])
@@ -887,15 +890,13 @@ cdef class TLSWrappedSocket:
         self._socket = socket
         self._buffer = buffer
         self._proto = _net.MBEDTLS_NET_PROTO_TCP
-        if socket is not None and socket.fileno() != -1:
-            # Implementation detail.
-            self._ctx.fd = socket.fileno()
-            self._set_bio()
 
     def __cinit__(self, socket, TLSWrappedBuffer buffer):
         _net.mbedtls_net_init(<_net.mbedtls_net_context *>&self._ctx)
         self._ctx.buffer = &buffer._buffer
         self._ctx.ssl = &buffer._context._ctx
+        self._ctx.fd = socket.fileno()
+        self._set_bio()
 
     def __dealloc__(self):
         _net.mbedtls_net_free(<_net.mbedtls_net_context *>&self._ctx)
@@ -928,45 +929,11 @@ cdef class TLSWrappedSocket:
         return self._socket.type
 
     def accept(self):
-        cdef TLSWrappedSocket cli = TLSWrappedSocket(
-            None, ServerContext(self.context.configuration).wrap_buffers())
-        cdef size_t sz = 256
-        cdef size_t ip_sz
-        cdef char* buffer = <char*>malloc(sz * sizeof(char))
-        if not buffer:
-            raise MemoryError()
-        try:
-            check_error(_net.mbedtls_net_accept(
-                <_net.mbedtls_net_context *>&self._ctx,
-                <_net.mbedtls_net_context *>&cli._ctx,
-                &buffer[0], sz, &ip_sz))
-            cli._socket = _socket.socket(
-                family=_socket.AF_INET,
-                type={
-                    _net.MBEDTLS_NET_PROTO_TCP: _socket.SOCK_STREAM,
-                    _net.MBEDTLS_NET_PROTO_UDP: _socket.SOCK_DGRAM
-                }[self._proto],
-                # XXX Next argument is not in Python 2.7!
-                fileno=cli._ctx.fd,
-            )
-            cli._set_bio()
-            assert cli._socket.fileno() == cli._ctx.fd
-            return cli, ip_address(bytes(buffer[:ip_sz]))
-        finally:
-            free(buffer)
+        conn, address = self._socket.accept()
+        return self.context.wrap_socket(conn), address
 
     def bind(self, address):
-        host, port = address
-        port = str(port).encode("ascii")
-        if host is None:
-            check_error(_net.mbedtls_net_bind(
-                <_net.mbedtls_net_context *>&self._ctx,
-                NULL, port, self._proto))
-        else:
-            host = host.encode("ascii")
-            check_error(_net.mbedtls_net_bind(
-                <_net.mbedtls_net_context *>&self._ctx,
-                host, port, self._proto))
+        self._socket.bind(address)
 
     def close(self):
         self.context._close()
@@ -990,13 +957,15 @@ cdef class TLSWrappedSocket:
     def getsockopt(self, optname, buflen=None):
         return self._socket.getsockopt(optname, buflen=buflen)
 
-    def listen(self, backlog):
+    def listen(self, backlog=None):
+        if backlog is None:
+            # Use 5 (Python default) or 10 (mbedtls defaults).
+            backlog = 5
         self._socket.listen(backlog)
 
     # makefile
 
     def recv(self, size_t bufsize, flags=0):
-        # TLSWrappedSocket::recv()
         data = self._socket.recv(bufsize, flags)
         if not data:
             return b""

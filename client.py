@@ -23,6 +23,7 @@ def main(host, port):
     sock = ctx.wrap_socket(
         socket.socket(socket.AF_INET, socket.SOCK_STREAM),
         server_hostname="localhost")
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     assert isinstance(sock, TLSWrappedSocket)
 
     print("  . TLS Version: ", sock.negotiated_tls_version())
