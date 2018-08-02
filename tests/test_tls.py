@@ -1,5 +1,6 @@
 import multiprocessing as mp
 import socket
+import sys
 
 import pytest
 
@@ -207,7 +208,8 @@ class TestTLSCommunication:
 
     @pytest.fixture(scope="class")
     def port(self):
-        return 4433
+        # Use version_info to parallize the tests.
+        return 4400 + 10 * sys.version_info.major + sys.version_info.minor
 
     @pytest.fixture(scope="class")
     def srv_key(self):
