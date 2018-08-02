@@ -23,8 +23,9 @@ def main(host, port):
 
     conf = TLSConfiguration(
         certificate_chain=([cert], key),
-        # highest_supported_version=TLSVersion.MINIMUM_SUPPORTED,
-        trust_store=store,
+        lowest_supported_version=TLSVersion.MINIMUM_SUPPORTED,
+        highest_supported_version=TLSVersion.MAXIMUM_SUPPORTED,
+        # trust_store=store,
         validate_certificates=False)
 
     ctx = ServerContext(conf)

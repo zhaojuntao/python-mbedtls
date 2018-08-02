@@ -12,7 +12,8 @@ def main(host, port):
     store = TrustStore.from_pem_file("srv.crt")
 
     conf = TLSConfiguration(
-        # highest_supported_version=TLSVersion.MINIMUM_SUPPORTED,
+        lowest_supported_version=TLSVersion.MINIMUM_SUPPORTED,
+        highest_supported_version=TLSVersion.MAXIMUM_SUPPORTED,
         trust_store=store,
         validate_certificates=False,
     )
