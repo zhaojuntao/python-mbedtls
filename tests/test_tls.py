@@ -233,13 +233,13 @@ class TestTLSCommunication:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.settimeout(0.5)
         sock.bind((host, port))
-        sock.listen()
+        sock.listen(1)
 
         def echo(sock):
             conn, addr = sock.accept()
             block(conn.do_handshake)
             data = conn.recv(1024)
-            conn.send(data)
+            conn.sendall(data)
 
         runner = mp.Process(target=echo, args=(sock,))
         runner.start()
