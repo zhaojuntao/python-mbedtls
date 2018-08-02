@@ -569,15 +569,15 @@ cdef class _BaseContext:
     def _purpose(self):
         return Purpose(self._conf._ctx.endpoint)
 
-    cpdef _reset(self):
+    def _reset(self):
         check_error(_tls.mbedtls_ssl_session_reset(&self._ctx))
 
     def _shutdown(self):
         _tls.mbedtls_ssl_close_notify(&self._ctx)
+        self._reset()
 
     def _close(self):
         self._shutdown()
-        self._reset()
 
     def _read(self, size_t amt):
         if amt <= 0:
@@ -787,7 +787,6 @@ cdef class TLSWrappedBuffer:
             raise MemoryError()
 
     def __dealloc__(self):
-        # XXX Use PyBuffer!
         free(self._buffer.buf)
         self._buffer.begin = 0
         self._buffer.len = 0
@@ -849,7 +848,7 @@ cdef class TLSWrappedBuffer:
 
     def shutdown(self):
         # PEP 543
-        self._context._shutdown()
+        self.context._shutdown()
 
     def receive_from_network(self, const unsigned char[:] data not None):
         # PEP 543
@@ -891,7 +890,6 @@ cdef class TLSWrappedSocket:
         super().__init__()
         self._socket = socket
         self._buffer = buffer
-        self._proto = _net.MBEDTLS_NET_PROTO_TCP
 
     def __cinit__(self, socket, TLSWrappedBuffer buffer):
         _net.mbedtls_net_init(<_net.mbedtls_net_context *>&self._ctx)
@@ -938,7 +936,7 @@ cdef class TLSWrappedSocket:
         self._socket.bind(address)
 
     def close(self):
-        self.context._close()
+        self._buffer.shutdown()
         self._socket.close()
 
     def connect(self, address):
@@ -965,7 +963,8 @@ cdef class TLSWrappedSocket:
             backlog = 5
         self._socket.listen(backlog)
 
-    # makefile
+    def makefile(self, *args, **kwargs):
+        return self._socket.makefile(*args, **kwargs)
 
     def recv(self, size_t bufsize, flags=0):
         data = self._socket.recv(bufsize, flags)
@@ -976,9 +975,11 @@ cdef class TLSWrappedSocket:
         return self.context._read(bufsize)
 
     def recvfrom(self, bufsize, flags=0):
+        # Not for streaming socket.
         ...
 
     def recvfrom_into(self, buffer, nbytes=None, flags=0):
+        # Not for streaming socket.
         ...
 
     def recv_into(self, buffer, nbytes=None, flags=0):
@@ -993,13 +994,15 @@ cdef class TLSWrappedSocket:
         self._buffer.consume_outgoing(amt)
         return amt
 
-    def sendall(self, string, flags=0):
-        ...
+    def sendall(self, const unsigned char[:] string, flags=0):
+        begin = 0
+        while begin < string.size:
+            begin += self.send(string[begin:], flags=flags)
 
-    def sendto(self, string, address):
-        ...
-
-    def sendto(self, string, flags, address):
+    def sendto(self, string, flags, address=None):
+        # Not for streaming socket.
+        if address is None:
+            address = flags
         ...
 
     def setblocking(self, flag):
@@ -1015,27 +1018,28 @@ cdef class TLSWrappedSocket:
         self._socket.setsockopt(level, optname, value)
 
     def shutdown(self, how):
-        self.context.shutdown()
+        self._buffer.shutdown()
         self._socket.shutdown(how)
 
     # PEP 543 adds the following methods.
 
     def do_handshake(self):
-        self.context._do_handshake()
+        self._buffer.do_handshake()
 
     def cipher(self):
-        return self.context._cipher()
+        return self._buffer.cipher()
 
     def negotiated_protocol(self):
-        return self.context._negotiated_protocol()
+        return self._buffer.negotiated_protocol()
 
     @property
     def context(self):
         return self._buffer.context
 
     def negotiated_tls_version(self):
-        return self.context._negotiated_tls_version()
+        return self._buffer.negotiated_tls_version()
 
     def unwrap(self):
+        self._buffer.shutdown()
         self.shutdown(_socket.SHUT_RDWR)
         return self._socket

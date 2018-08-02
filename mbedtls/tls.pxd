@@ -312,7 +312,6 @@ cdef class _TLSSession:
 cdef class _BaseContext:
     cdef mbedtls_ssl_context _ctx
     cdef TLSConfiguration _conf
-    cpdef _reset(self)
 
 
 cdef class ClientContext(_BaseContext):
@@ -350,9 +349,7 @@ cdef class TLSWrappedBuffer:
 
 
 cdef class TLSWrappedSocket:
-    # cdef _net.mbedtls_net_context _net
     cdef TLSWrappedBuffer _buffer
+    cdef _socket
     cdef _IOContext _ctx
     cdef void _set_bio(self)
-    cdef int _proto
-    cdef _socket
