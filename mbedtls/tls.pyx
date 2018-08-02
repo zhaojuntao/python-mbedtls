@@ -776,6 +776,7 @@ cdef class TLSWrappedBuffer:
     # _pep543.TLSWrappedBuffer
     def __init__(self, _BaseContext context):
         self._context = context
+        self.context._reset()
 
     def __cinit__(self):
         self._buffer.begin = 0
