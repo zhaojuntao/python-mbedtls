@@ -68,11 +68,9 @@ zhuYwjVuX6JHG0c=
 def block(callback, *args, **kwargs):
     while True:
         try:
-            callback(*args, **kwargs)
+            return callback(*args, **kwargs)
         except (WantReadError, WantWriteError):
             pass
-        else:
-            break
 
 
 class TestTrustStore:
@@ -239,7 +237,7 @@ class TestTLSCommunication:
 
         def echo(sock):
             conn, addr = sock.accept()
-            conn.do_handshake()
+            block(conn.do_handshake)
             data = conn.recv(1024)
             conn.send(data)
 
