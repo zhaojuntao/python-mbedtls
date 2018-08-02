@@ -280,7 +280,7 @@ cdef extern from "mbedtls/ssl.h":
         const unsigned char *buf,
         size_t len)
     # mbedtls_ssl_send_alert_message
-    # mbedtls_ssl_close_notify
+    int mbedtls_ssl_close_notify(mbedtls_ssl_context *ssl)
     void mbedtls_ssl_free(mbedtls_ssl_context *ctx)
 
     # mbedtls_ssl_session

@@ -573,10 +573,11 @@ cdef class _BaseContext:
         check_error(_tls.mbedtls_ssl_session_reset(&self._ctx))
 
     def _shutdown(self):
-        self._reset()
+        _tls.mbedtls_ssl_close_notify(&self._ctx)
 
     def _close(self):
         self._shutdown()
+        self._reset()
 
     def _read(self, size_t amt):
         if amt <= 0:
