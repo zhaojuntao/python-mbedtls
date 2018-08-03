@@ -33,6 +33,13 @@ cdef:
         MBEDTLS_SSL_MINOR_VERSION_3 = 3
 
     enum:
+        # TLS Header
+        MBEDTLS_SSL_MSG_CHANGE_CIPHER_SPEC = 20
+        MBEDTLS_SSL_MSG_ALERT = 21
+        MBEDTLS_SSL_MSG_HANDSHAKE = 22
+        MBEDTLS_SSL_MSG_APPLICATION_DATA = 23
+
+    enum:
         MBEDTLS_SSL_HELLO_REQUEST
         MBEDTLS_SSL_CLIENT_HELLO
         MBEDTLS_SSL_SERVER_HELLO
@@ -323,7 +330,7 @@ cdef class ServerContext(_BaseContext):
 
 
 cdef enum:
-    # Maximum reported according to fourthbit.
+    # 16K (tls default)
     TLS_BUFFER_CAPACITY = 16384
 
 
