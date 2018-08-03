@@ -30,39 +30,57 @@ cdef _random.Random __rng = _random.Random()
 
 cdef int buffer_write(void *ctx, const unsigned char *buf, size_t len):
     """Copy `buf` to internal buffer."""
-    c_ctx = <_IOContext *>ctx
-    if c_ctx.ssl.state != _tls.MBEDTLS_SSL_HANDSHAKE_OVER:
-        return _net.mbedtls_net_send(ctx, buf, len)
-
-    if len > _tls.TLS_BUFFER_CAPACITY:
+    if len == 0:
+        return _tls.MBEDTLS_ERR_SSL_BAD_INPUT_DATA
+    elif len > _tls.TLS_BUFFER_CAPACITY:
         return _tls.MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL
 
-    memcpy(&c_ctx.buffer.buf[0], buf, len)
-    c_ctx.buffer.len = len
-    return len
+    c_ctx = <_IOContext *>ctx
+    if buf[0] == _tls.MBEDTLS_SSL_MSG_APPLICATION_DATA:
+        # print("W [%i:%i:%i] %r" % (
+        #     c_ctx.buffer.begin, c_ctx.buffer.len,
+        #     len, bytes(buf[:len])))
+        memcpy(&c_ctx.buffer.buf[0], buf, len)
+        c_ctx.buffer.len = len
+        return len
+    else:
+        # print("S [%i:%i:%i] %r" % (
+        #     c_ctx.buffer.begin, c_ctx.buffer.len,
+        #     len, bytes(buf[:len])))
+        return _net.mbedtls_net_send(ctx, buf, len)
 
 
 cdef int buffer_read(void *ctx, unsigned char *buf, size_t len):
     """Copy internal buffer to `buf`."""
-    c_ctx = <_IOContext *>ctx
-    if c_ctx.ssl.state != _tls.MBEDTLS_SSL_HANDSHAKE_OVER:
-        return _net.mbedtls_net_recv(ctx, buf, len)
-
     if len > _tls.TLS_BUFFER_CAPACITY:
         return _tls.MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL
-    elif len > c_ctx.buffer.len - c_ctx.buffer.begin:
-        return _tls.MBEDTLS_ERR_SSL_BAD_INPUT_DATA
 
-    cdef size_t length = min(c_ctx.buffer.len - c_ctx.buffer.begin, len)
-    memcpy(buf, &c_ctx.buffer.buf[c_ctx.buffer.begin], length)
-    if c_ctx.buffer.begin + length == c_ctx.buffer.len:
-        # Everything has been read.  We are done
-        # with this buffer.
-        c_ctx.buffer.begin = 0
-        c_ctx.buffer.len = 0
+    c_ctx = <_IOContext *>ctx
+    if (c_ctx.buffer.len != 0
+        and any((c_ctx.buffer.begin == 0
+                 and c_ctx.buffer.buf[0]
+                 == _tls.MBEDTLS_SSL_MSG_APPLICATION_DATA,
+                 c_ctx.buffer.begin != 0))):
+        if len > c_ctx.buffer.len - c_ctx.buffer.begin:
+            return _tls.MBEDTLS_ERR_SSL_BAD_INPUT_DATA
+        # print("R [%i:%i:%i] %r" % (
+        #     c_ctx.buffer.begin, c_ctx.buffer.len,
+        #     len, bytes(c_ctx.buffer.buf[:len])))
+        length = min(c_ctx.buffer.len - c_ctx.buffer.begin, len)
+        memcpy(buf, &c_ctx.buffer.buf[c_ctx.buffer.begin], length)
+        if c_ctx.buffer.begin + length == c_ctx.buffer.len:
+            # Everything has been read.  We are done
+            # with this buffer.
+            c_ctx.buffer.begin = 0
+            c_ctx.buffer.len = 0
+        else:
+            c_ctx.buffer.begin = length
+        return length
     else:
-        c_ctx.buffer.begin = length
-    return length
+        # print("C [%i:%i:%i] %r" % (
+        #     c_ctx.buffer.begin, c_ctx.buffer.len,
+        #     len, bytes(buf[:len])))
+        return _net.mbedtls_net_recv(ctx, buf, len)
 
 
 def __get_ciphersuite_name(ciphersuite_id):
