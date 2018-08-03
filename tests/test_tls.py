@@ -231,7 +231,7 @@ class TestTLSCommunication:
         sock = ctx.wrap_socket(
             socket.socket(socket.AF_INET, socket.SOCK_STREAM))
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.settimeout(0.5)
+        sock.settimeout(1.0)
         sock.bind((host, port))
         sock.listen(1)
 
@@ -241,10 +241,10 @@ class TestTLSCommunication:
             data = conn.recv(1024)
             conn.sendall(data)
 
-        runner = mp.Process(target=echo, args=(sock,))
+        runner = mp.Process(target=echo, args=(sock, ))
         runner.start()
         yield sock
-        runner.join(0.1)
+        runner.join(1.0)
         sock.close()
 
     @pytest.fixture

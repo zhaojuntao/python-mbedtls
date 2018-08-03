@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import socket
 import time
 
@@ -9,6 +11,14 @@ from mbedtls.tls import *
 
 HOST = "localhost"
 PORT = 4433
+
+
+def block(callback, *args, **kwargs):
+    while True:
+        try:
+            return callback(*args, **kwargs)
+        except (WantReadError, WantWriteError):
+            pass
 
 
 def main(host, port):

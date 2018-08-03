@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import socket
 
 from mbedtls.x509 import Certificate
@@ -6,6 +8,14 @@ from mbedtls.tls import *
 
 HOST = "localhost"
 PORT = 4433
+
+
+def block(callback, *args, **kwargs):
+    while True:
+        try:
+            return callback(*args, **kwargs)
+        except (WantReadError, WantWriteError):
+            pass
 
 
 def main(host, port):
@@ -24,7 +34,7 @@ def main(host, port):
     sock = ctx.wrap_socket(
         socket.socket(socket.AF_INET, socket.SOCK_STREAM),
         server_hostname="localhost")
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.settimeout(1.0)
     assert isinstance(sock, TLSWrappedSocket)
 
     print("  . TLS Version: ", sock.negotiated_tls_version())
@@ -32,7 +42,7 @@ def main(host, port):
     print("  . cipher: ", sock.cipher())
 
     sock.connect((host, port))
-    sock.do_handshake()
+    block(sock.do_handshake)
 
     print("  . Handshake OK")
     print("  . TLS Version: ", sock.negotiated_tls_version())
@@ -41,10 +51,11 @@ def main(host, port):
 
     request = b"GET / HTTP/1.0\r\n\r\n"
     print("  > write to server:", request)
-    sock.send(request)
+    block(sock.send, request)
 
     print("  < Read from server:", end=" ")
-    print(sock.recv(1024))
+    data = block(sock.recv, 1024)
+    print(data)
 
     sock.close()
 
