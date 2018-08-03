@@ -817,7 +817,6 @@ cdef class TLSWrappedBuffer:
 
     def read(self, size_t amt):
         # PEP 543
-        assert self._buffer.begin == self._buffer.len == 0
         return self.context._read(amt)
 
     def readinto(self, unsigned char[:] buffer, size_t amt):
@@ -877,7 +876,6 @@ cdef class TLSWrappedBuffer:
         cdef size_t end = self._buffer.len * sizeof(unsigned char)
         assert end == 0  # XXX if so, then end is not needed...
         memcpy(&self._buffer.buf[end], &data[0], data.size)
-        assert bytes(data) == bytes(self._buffer.buf[end:data.size])
         self._buffer.len = data.size
 
     def peek_outgoing(self, size_t amt):

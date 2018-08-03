@@ -243,7 +243,7 @@ class TestTLSCommunication:
 
         runner = mp.Process(target=echo, args=(sock,))
         runner.start()
-        yield
+        yield sock
         runner.join(0.1)
         sock.close()
 
